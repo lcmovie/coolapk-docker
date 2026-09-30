@@ -148,9 +148,10 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from './utils/persistentStorage';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { listen } from '@tauri-apps/api/event';
+import { isTauri, listen } from './utils/runtime';
 import AppShell from './components/layout/AppShell.vue';
 import PublishDialog from './components/overlays/PublishDialog.vue';
 import ImageViewer from './components/overlays/ImageViewer.vue';
@@ -240,6 +241,10 @@ function formatBytes(bytes: number) {
 }
 
 async function checkForUpdate(manual = false) {
+  if (!isTauri()) {
+    if (manual) window.alert('网页版请通过 Docker Compose 更新镜像，账号和设置保存在安装目录的 data 中。');
+    return;
+  }
   logDiagnostic('info', 'update', 'check_started', `manual=${manual}`);
   try {
     await refreshUpdatePlatform();
@@ -275,7 +280,7 @@ async function checkForUpdate(manual = false) {
         latestVersion !== ignoredVersion
       ));
     if (shouldReplacePending) {
-      localStorage.removeItem(PENDING_UPDATE_KEY);
+      stateStorage.removeItem(PENDING_UPDATE_KEY);
       readyInfo.value = null;
       readyUpdateVisible.value = false;
       try {
@@ -379,7 +384,7 @@ async function startBackgroundDownload(info: UpdateInfo) {
       releaseNotes: info.releaseNotes || '',
     };
     readyUpdateVisible.value = true;
-    localStorage.setItem(PENDING_UPDATE_KEY, JSON.stringify(readyInfo.value));
+    stateStorage.setItem(PENDING_UPDATE_KEY, JSON.stringify(readyInfo.value));
     if (settingsStore.settings.desktopNotifications && settingsStore.settings.notifyDownloadComplete) {
       void desktopNotify(
         {
@@ -405,7 +410,7 @@ function installNow() {
   if (!canInstallInApp.value || !info || installingUpdate.value) return;
   // 安装前再次校验：本地已不低于该版本时放弃安装旧包（防降级）
   if (info.version && !isNewerVersion(info.version)) {
-    localStorage.removeItem(PENDING_UPDATE_KEY);
+    stateStorage.removeItem(PENDING_UPDATE_KEY);
     readyInfo.value = null;
     readyUpdateVisible.value = false;
     void CoolapkTauriAPI.cleanupUpdatePackages().catch(() => undefined);
@@ -459,7 +464,7 @@ function openReleasePage() {
 
 async function restorePendingUpdate(): Promise<boolean> {
   const clearInvalidPending = async () => {
-    localStorage.removeItem(PENDING_UPDATE_KEY);
+    stateStorage.removeItem(PENDING_UPDATE_KEY);
     readyInfo.value = null;
     readyUpdateVisible.value = false;
     try {
@@ -470,7 +475,7 @@ async function restorePendingUpdate(): Promise<boolean> {
   };
 
   try {
-    const pendingRaw = localStorage.getItem(PENDING_UPDATE_KEY);
+    const pendingRaw = stateStorage.getItem(PENDING_UPDATE_KEY);
     if (!pendingRaw) {
       await CoolapkTauriAPI.cleanupUpdatePackages();
       return false;
@@ -531,7 +536,7 @@ onMounted(() => {
   void (async () => {
     await refreshUpdatePlatform();
     if (canInstallInApp.value) await restorePendingUpdate();
-    if (!import.meta.env.DEV && settingsStore.settings.checkUpdateOnStartup) {
+    if (isTauri() && !import.meta.env.DEV && settingsStore.settings.checkUpdateOnStartup) {
       void checkForUpdate();
     }
   })();

@@ -96,7 +96,7 @@
       <div v-else class="setting-row">
         <div class="row-info">
           <span class="row-label">字体族</span>
-          <span class="row-sub">打开 Windows 系统字体选择器，从本机已安装字体中选择</span>
+          <span class="row-sub">{{ isTauri() ? '打开 Windows 系统字体选择器，从本机已安装字体中选择' : '输入当前浏览器所在设备已安装的字体名称' }}</span>
         </div>
         <div class="font-picker-controls">
           <button
@@ -254,7 +254,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '../../utils/runtime';
 import { useSettingsStore } from '../../stores/settings';
 import type { AccentColor, FeedDensity } from '../../types/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';

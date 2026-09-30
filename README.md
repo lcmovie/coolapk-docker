@@ -16,6 +16,16 @@
 > [!IMPORTANT]
 > 本项目是社区维护的非官方客户端，与酷安官方及深圳酷安网络科技有限公司无隶属、授权或合作关系。酷安名称、Logo 和相关商标归其权利人所有。
 
+## Docker 原生网页版
+
+本分支增加原生网页运行方式：复用桌面版 Vue 界面，由独立 Rust HTTP 服务提供接口和持久化数据，不需要图形桌面或 VNC。桌面版仍使用原有 Tauri 运行方式。
+
+支持通过 `docker compose up -d --build` 构建和部署。账号 Cookie、应用访问会话、设置、历史和下载文件保存在安装目录的 `data/`，容器重新创建后继续保留；Cookie 的有效期仍由酷安决定。
+
+飞牛测试实例部署于 `/volume1/docker/coolapk-docker`，NAS 端口 `18966`，远程入口为 [酷安网页版](https://coolapk.example.com:88/)。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md) 和 [验证说明](docs/docker-testing.md)。
+
+酷安 Cookie 由用户后续在网页自行导入，当前未导入真实 Cookie，已登录账号业务尚未验证。桌面 WebView 自动授权不适用于浏览器。
+
 ## 📥 下载与安装
 
 请前往 [👉 GitHub Releases](https://github.com/daimiaopeng/coolapk-desktop/releases) 获取各平台的最新版本程序包：

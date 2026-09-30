@@ -15,7 +15,7 @@
       <EmptyState v-else-if="!liveDetail" title="直播不存在" description="这场直播可能已经下线" />
       <section v-else class="live-detail-content">
         <div v-if="!settingsStore.settings.noImageMode" class="live-player-shell">
-          <video v-if="videoUrl && !videoFailed" class="live-player" :src="videoUrl" controls playsinline preload="metadata" @error="videoFailed = true"></video>
+          <video v-if="videoUrl && !videoFailed" class="live-player" :src="mediaProxyUrl(videoUrl)" controls playsinline preload="metadata" @error="videoFailed = true"></video>
           <div v-else class="live-player-placeholder">
             <AppImage v-if="image" :src="image" :alt="title || '直播封面'" fit="cover" image-class="live-detail-cover" />
             <div class="live-player-placeholder-mask">
@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import { mediaProxyUrl } from '../utils/runtime';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppImage from '../components/common/AppImage.vue';

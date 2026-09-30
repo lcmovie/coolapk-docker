@@ -52,6 +52,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -100,10 +101,10 @@ const fallbackTabs: DiscoveryTab[] = [
 
 // 初始化优先读取本地缓存，避免首屏瞬间无 Tab 和闪烁
 try {
-  const cached = JSON.parse(localStorage.getItem('coolapk.discovery.tabs.v2') || '[]');
+  const cached = JSON.parse(stateStorage.getItem('coolapk.discovery.tabs.v2') || '[]');
   if (Array.isArray(cached) && cached.length) {
     tabs.value = cached;
-    const savedSelected = localStorage.getItem(selectedTabStorageKey);
+    const savedSelected = stateStorage.getItem(selectedTabStorageKey);
     selectedKey.value = tabs.value.some((tab) => tab.key === savedSelected)
       ? String(savedSelected)
       : tabs.value.find((tab) => tab.title.trim() === '生活')?.key || tabs.value[0]?.key || '';
@@ -159,10 +160,10 @@ async function loadConfig() {
     const parsed = parseDiscoveryTabs(response);
     if (parsed.length) {
       tabs.value = parsed;
-      localStorage.setItem('coolapk.discovery.tabs.v2', JSON.stringify(parsed));
+      stateStorage.setItem('coolapk.discovery.tabs.v2', JSON.stringify(parsed));
     }
     const serverSelected = parseDiscoverySelectedKey(response, tabs.value);
-    const savedSelected = localStorage.getItem(selectedTabStorageKey);
+    const savedSelected = stateStorage.getItem(selectedTabStorageKey);
     if (!selectedKey.value || !tabs.value.some((t) => t.key === selectedKey.value)) {
       selectedKey.value = tabs.value.some((tab) => tab.key === savedSelected)
         ? String(savedSelected)
@@ -180,7 +181,7 @@ async function loadConfig() {
       const inPageTab = tabs.value.find((tab) => tab.title.trim() === '生活' && !resolveDiscoveryTopicRoute(tab.url || tab.pageName || tab.key)) || tabs.value.find((tab) => !resolveDiscoveryTopicRoute(tab.url || tab.pageName || tab.key));
       if (inPageTab) selectedKey.value = inPageTab.key;
     }
-    if (selectedKey.value) localStorage.setItem(selectedTabStorageKey, selectedKey.value);
+    if (selectedKey.value) stateStorage.setItem(selectedTabStorageKey, selectedKey.value);
     void loadSelected(false);
   }
 }
@@ -248,7 +249,7 @@ function selectTab(key: string) {
     return;
   }
   selectedKey.value = key;
-  localStorage.setItem(selectedTabStorageKey, key);
+  stateStorage.setItem(selectedTabStorageKey, key);
   if (tab.openNewActivity && tab.nativeKind !== 'dyh') {
     openTab(tab);
     return;

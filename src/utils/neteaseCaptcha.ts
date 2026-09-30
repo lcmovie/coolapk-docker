@@ -19,16 +19,18 @@ export interface NECaptchaConfig {
   mode?: 'float' | 'embed' | 'popup';
   width?: string | number;
   lang?: string;
-  onReady?: (instance: NECaptchaInstance) => void;
+  onReady?: (instance?: NECaptchaInstance) => void;
   onVerify?: (err: any, data: { validate?: string; [key: string]: any }) => void;
   onClose?: () => void;
   [key: string]: any;
 }
 
 export interface NECaptchaInstance {
-  popup: () => void;
-  refresh: () => void;
-  destroy: () => void;
+  verify?: () => void;
+  popUp?: () => void;
+  popup?: () => void;
+  refresh?: () => void;
+  destroy?: () => void;
 }
 
 /** 酷安官方网易易盾 Captcha ID */
@@ -82,6 +84,8 @@ export function extractCaptchaParamsFromError(error: unknown): { captchaId: stri
 
 let scriptLoadingPromise: Promise<void> | null = null;
 const SCRIPT_LOAD_TIMEOUT_MS = 15_000;
+const CAPTCHA_INIT_TIMEOUT_MS = 15_000;
+const CAPTCHA_VERIFY_TIMEOUT_MS = 180_000;
 
 /**
  * 动态加载网易易盾 Web JS SDK
@@ -166,65 +170,106 @@ export async function verifyWithCaptcha(captchaId = DEFAULT_COOLAPK_CAPTCHA_ID):
     document.body.appendChild(container);
 
     let captchaInstance: NECaptchaInstance | null = null;
-    let resolved = false;
+    let settled = false;
+    let opened = false;
+    const destroyedInstances = new Set<NECaptchaInstance>();
+    let timeout = window.setTimeout(() => fail(new Error('网易易盾验证码初始化超时，请重试')), CAPTCHA_INIT_TIMEOUT_MS);
 
-    const cleanup = () => {
+    const destroyInstance = (instance: NECaptchaInstance) => {
+      if (destroyedInstances.has(instance)) return;
+      destroyedInstances.add(instance);
       try {
-        if (captchaInstance) {
-          captchaInstance.destroy();
-        }
-      } catch (e) {
-        // ignore
-      }
-      if (container.parentNode) {
-        container.parentNode.removeChild(container);
+        instance.destroy?.();
+      } catch {
+        // SDK 清理失败不能阻止业务请求结束。
       }
     };
 
-    window.initNECaptcha!(
-      {
-        captchaId,
-        element: container,
-        mode: 'popup',
-        width: '320px',
-        lang: 'zh-CN',
-        onReady: (instance) => {
-          captchaInstance = instance;
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      if (captchaInstance) destroyInstance(captchaInstance);
+      container.remove();
+    };
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      // destroy 也可能触发 onClose，必须先标记结束以避免重复清理。
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const rememberInstance = (instance?: NECaptchaInstance) => {
+      if (!instance) return;
+      if (settled) {
+        destroyInstance(instance);
+        return;
+      }
+      captchaInstance = instance;
+    };
+
+    const errorMessage = (error: unknown, fallback: string) => {
+      if (typeof error === 'string') return error;
+      if (error instanceof Error) return error.message || fallback;
+      return typeof (error as { message?: unknown } | null)?.message === 'string'
+        ? (error as { message: string }).message : fallback;
+    };
+
+    try {
+      window.initNECaptcha!(
+        {
+          captchaId,
+          element: container,
+          mode: 'popup',
+          width: '320px',
+          lang: 'zh-CN',
+          apiVersion: 2,
+          onReady: rememberInstance,
+          onVerify: (err, data) => {
+            if (settled) return;
+            if (err) {
+              fail(new Error(errorMessage(err, '验证码验证失败')));
+              return;
+            }
+            if (data && data.validate) {
+              settled = true;
+              const prefix = captchaId.slice(0, 8);
+              const token = `NEC:${prefix}:${data.validate}`;
+              cleanup();
+              resolve(token);
+            } else {
+              fail(new Error('验证码凭证无效'));
+            }
+          },
+          onClose: () => {
+            fail(new Error('用户取消了人机验证'));
+          },
         },
-        onVerify: (err, data) => {
-          if (err) {
-            resolved = true;
-            cleanup();
-            reject(new Error(typeof err === 'string' ? err : err?.message || '验证码验证失败'));
+        (instance) => {
+          rememberInstance(instance);
+          if (settled || opened) return;
+          // 官方 v2 SDK 使用 verify()；兼容旧 SDK 的 popUp / popup 命名。
+          const show = instance?.verify || instance?.popUp || instance?.popup;
+          if (typeof show !== 'function') {
+            fail(new Error('网易易盾验证码弹窗方法不可用，请重试'));
             return;
           }
-          if (data && data.validate) {
-            resolved = true;
-            const prefix = captchaId.slice(0, 8);
-            const token = `NEC:${prefix}:${data.validate}`;
-            cleanup();
-            resolve(token);
-          } else {
-            resolved = true;
-            cleanup();
-            reject(new Error('验证码凭证无效'));
+          opened = true;
+          window.clearTimeout(timeout);
+          timeout = window.setTimeout(() => fail(new Error('人机验证等待超时，请重试并手动完成验证')), CAPTCHA_VERIFY_TIMEOUT_MS);
+          // SDK 会异步执行 onload，异常不会被 Promise 构造函数捕获。
+          try {
+            show.call(instance);
+          } catch (error) {
+            fail(new Error(errorMessage(error, '无法显示网易易盾验证码')));
           }
         },
-        onClose: () => {
-          if (!resolved) {
-            cleanup();
-            reject(new Error('用户取消了人机验证'));
-          }
-        },
-      },
-      (instance) => {
-        captchaInstance = instance;
-        instance.popup();
-      },
-      (err) => {
-        cleanup();
-        reject(new Error(typeof err === 'string' ? err : err?.message || '初始化易盾滑块失败'));
-      }
-    );
+        (err) => {
+          fail(new Error(errorMessage(err, '初始化易盾滑块失败')));
+        }
+      );
+    } catch (error) {
+      fail(new Error(errorMessage(error, '初始化易盾滑块失败')));
+    }
   });
 }

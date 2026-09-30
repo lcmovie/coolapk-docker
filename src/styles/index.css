@@ -4,6 +4,23 @@
 @import './utilities.css';
 @import './transitions.css';
 
+/* Keep the desktop's component dimensions on large displays; only the outer canvas narrows. */
+html[data-runtime='web'] #app {
+  width: 100%;
+  max-width: 1440px;
+  height: 100%;
+  margin-inline: auto;
+  border-inline: 1px solid var(--border-light);
+}
+
+html[data-runtime='web'] body { background-color: var(--surface-hover); }
+
+/* The right column uses vw on desktop. Cap its web value at the original
+   1440px window's 19vw so the centered layout keeps the same column widths. */
+html[data-runtime='web'] .right-sidebar {
+  width: clamp(var(--right-sidebar-width, 280px), min(19vw, 273.6px), 320px);
+}
+
 /* 列表密度 (Feed Density) —— 由设置 store 的 data-density 驱动 */
 :root {
   --feed-card-padding: 20px;

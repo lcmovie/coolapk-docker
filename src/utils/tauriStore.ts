@@ -1,4 +1,5 @@
 import type { Store } from '@tauri-apps/plugin-store';
+import { apiRequest } from './runtime';
 
 interface StoreLike {
   get<T>(key: string): Promise<T | undefined>;
@@ -20,6 +21,15 @@ class MemoryStore implements StoreLike {
   async save(): Promise<void> {}
 }
 
+class WebStore implements StoreLike {
+  constructor(private fileName: string, private values: Record<string, unknown>) {}
+  async get<T>(key: string): Promise<T | undefined> { return this.values[key] as T | undefined; }
+  async set(key: string, value: unknown): Promise<void> { this.values[key] = value; }
+  async save(): Promise<void> {
+    await apiRequest(`/api/store/${encodeURIComponent(this.fileName)}`, { method: 'PUT', body: JSON.stringify(this.values) });
+  }
+}
+
 const stores = new Map<string, Promise<StoreLike>>();
 const operationQueues = new Map<string, Promise<unknown>>();
 
@@ -32,7 +42,10 @@ async function loadStore(fileName: string): Promise<StoreLike> {
   if (existing) return existing;
 
   const promise = (async () => {
-    if (!isTauriRuntime()) return new MemoryStore();
+    if (!isTauriRuntime()) {
+      const values = await apiRequest<Record<string, unknown>>(`/api/store/${encodeURIComponent(fileName)}`);
+      return new WebStore(fileName, values);
+    }
     try {
       const { Store } = await import('@tauri-apps/plugin-store');
       return await Store.load(fileName, { autoSave: false }) as Store;
@@ -42,6 +55,7 @@ async function loadStore(fileName: string): Promise<StoreLike> {
     }
   })();
   stores.set(fileName, promise);
+  promise.catch(() => stores.delete(fileName));
   return promise;
 }
 

@@ -1,0 +1,36 @@
+services:
+  coolapk:
+    image: coolapk-docker:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${COOLAPK_BIND_IP:-0.0.0.0}:${COOLAPK_HOST_PORT:-18966}:8080"
+    environment:
+      COOLAPK_PORT: "8080"
+      COOLAPK_DATA_DIR: /app/data
+      COOLAPK_STATIC_DIR: /app/dist
+      COOLAPK_PUBLIC_ORIGIN: "${COOLAPK_PUBLIC_ORIGIN:-}"
+      COOLAPK_ACCESS_PASSWORD: "${COOLAPK_ACCESS_PASSWORD:-}"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "3", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

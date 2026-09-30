@@ -1,3 +1,4 @@
+import { stateStorage } from './persistentStorage';
 import { ref } from 'vue';
 import { readTauriStoreValue, writeTauriStoreValue } from './tauriStore';
 
@@ -30,14 +31,14 @@ export function loadSearchHistory(): Promise<void> {
 
     let legacy: string[] = [];
     try {
-      legacy = normalizeHistory(JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || '[]'));
+      legacy = normalizeHistory(JSON.parse(stateStorage.getItem(LEGACY_STORAGE_KEY) || '[]'));
     } catch {
       // 浏览器存储不可用时直接从空历史开始。
     }
     searchHistory.value = legacy;
     await writeTauriStoreValue(STORE_FILE, STORE_KEY, legacy);
     try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      stateStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // 忽略旧数据清理失败。
     }

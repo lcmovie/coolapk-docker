@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from './runtime';
 
 export type DesktopNotifyOptions = {
   title: string;
@@ -40,6 +40,13 @@ function playNotificationSound() {
  * 非 Tauri 环境（浏览器预览/单元测试）下静默忽略。
  */
 export async function desktopNotify(options: DesktopNotifyOptions, sound = false) {
+  if (!isTauri()) {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification(options.title, { body: options.body });
+      if (sound) playNotificationSound();
+    }
+    return;
+  }
   try {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     const notificationPromise = invoke('send_desktop_notification', {

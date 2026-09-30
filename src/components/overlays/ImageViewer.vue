@@ -72,7 +72,7 @@
             ref="liveVideoRef"
             :key="liveVideoUrl"
             class="viewer-live-video"
-            :src="liveVideoUrl"
+            :src="mediaProxyUrl(liveVideoUrl)"
             :poster="displaySrc || undefined"
             :muted="!liveSoundEnabled"
             loop
@@ -143,6 +143,7 @@
 </template>
 
 <script setup lang="ts">
+import { mediaProxyUrl } from '../../utils/runtime';
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';

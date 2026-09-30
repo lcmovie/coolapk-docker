@@ -73,6 +73,29 @@ describe('CoolapkTauriAPI 内容新页接口封装', () => {
     expect(invoke).toHaveBeenCalledTimes(4);
   });
 
+  it.each(['cancel', 'popup-error'] as const)('实际 popUp SDK 异步回调 %s 后释放详情请求和并发槽', async (failure) => {
+    const popUp = vi.fn(() => {
+      if (failure === 'popup-error') throw new Error('SDK 弹窗异常');
+    });
+    const destroy = vi.fn();
+    window.initNECaptcha = vi.fn((config, onLoad) => {
+      queueMicrotask(() => {
+        onLoad?.({ popUp, destroy });
+        config.onReady?.();
+        if (failure === 'cancel') config.onClose?.();
+      });
+    });
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === 'get_feed_detail') throw JSON.stringify({ code: 403, messageStatus: 'err_request_captcha_v2' });
+      return okResponse({ html: '' });
+    });
+    await expect(loadFeedFullText('74041182')).rejects.toThrow(failure === 'cancel' ? '用户取消了人机验证' : 'SDK 弹窗异常');
+    await vi.waitFor(() => expect(getFeedFullTextRequestStats()).toEqual({ active: 0, queued: 0 }));
+    expect(popUp).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+  });
+
   it('后台正文读取使用独立的游客详情命令', async () => {
     await CoolapkTauriAPI.getPublicFeedDetail('123');
     expect(invoke).toHaveBeenCalledWith('get_public_feed_detail', { feedId: '123' });

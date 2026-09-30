@@ -216,6 +216,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -248,13 +249,13 @@ const modes: Array<{ key: DigitalMode; label: string; icon: string }> = [
   { key: 'category', label: '分类', icon: 'fas fa-layer-group' },
 ];
 const activeMode = ref<DigitalMode>('brand');
-const savedDisplayMode = localStorage.getItem('coolapk.digital.display_mode');
+const savedDisplayMode = stateStorage.getItem('coolapk.digital.display_mode');
 const displayMode = ref<DisplayMode>(savedDisplayMode === 'vertical' ? 'vertical' : 'grid');
 
 function setDisplayMode(mode: DisplayMode) {
   displayMode.value = mode;
   try {
-    localStorage.setItem('coolapk.digital.display_mode', mode);
+    stateStorage.setItem('coolapk.digital.display_mode', mode);
   } catch {}
 }
 const digitalTabs = ref<DigitalTab[]>([]);
@@ -449,7 +450,7 @@ function selectDigitalSubtab(entity: DiscoveryEntity) {
   const key = subtabKey(entity);
   if (selectedSubtabKey.value === key) return;
   selectedSubtabKey.value = key;
-  if (selectedTab.value) localStorage.setItem(`coolapk.digital.subtab.${selectedTab.value.key}`, key);
+  if (selectedTab.value) stateStorage.setItem(`coolapk.digital.subtab.${selectedTab.value.key}`, key);
   resetTabItems();
   if (!selectedTabWebUrl.value) void loadTabItems(false, tabSelectionVersion.value);
 }

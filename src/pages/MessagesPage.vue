@@ -329,6 +329,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { ref, onMounted, onUnmounted, onActivated, onDeactivated, nextTick, computed, watch } from 'vue';
 
 defineOptions({
@@ -686,7 +687,7 @@ const MAX_INPUT_HEIGHT = 600;
 
 function getStoredNumber(key: string, fallback: number, min: number, max: number): number {
   try {
-    const saved = localStorage.getItem(key);
+    const saved = stateStorage.getItem(key);
     if (saved) {
       const val = parseInt(saved, 10);
       if (!Number.isNaN(val) && val >= min && val <= max) return val;
@@ -756,14 +757,14 @@ function stopResizeSidebar() {
   window.removeEventListener('mousemove', onMouseMoveSidebar);
   window.removeEventListener('mouseup', stopResizeSidebar);
   try {
-    localStorage.setItem('coolapk_messages_sidebar_width', String(sidebarWidth.value));
+    stateStorage.setItem('coolapk_messages_sidebar_width', String(sidebarWidth.value));
   } catch {}
 }
 
 function resetSidebarWidth() {
   sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH;
   try {
-    localStorage.setItem('coolapk_messages_sidebar_width', String(DEFAULT_SIDEBAR_WIDTH));
+    stateStorage.setItem('coolapk_messages_sidebar_width', String(DEFAULT_SIDEBAR_WIDTH));
   } catch {}
 }
 
@@ -800,14 +801,14 @@ function stopResizeInput() {
   window.removeEventListener('mousemove', onMouseMoveInput);
   window.removeEventListener('mouseup', stopResizeInput);
   try {
-    localStorage.setItem('coolapk_messages_input_height', String(inputAreaHeight.value));
+    stateStorage.setItem('coolapk_messages_input_height', String(inputAreaHeight.value));
   } catch {}
 }
 
 function resetInputHeight() {
   inputAreaHeight.value = DEFAULT_INPUT_HEIGHT;
   try {
-    localStorage.setItem('coolapk_messages_input_height', String(DEFAULT_INPUT_HEIGHT));
+    stateStorage.setItem('coolapk_messages_input_height', String(DEFAULT_INPUT_HEIGHT));
   } catch {}
 }
 

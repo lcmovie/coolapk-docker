@@ -1,7 +1,7 @@
 <template>
   <div class="settings-section">
     <h3 class="section-title">诊断日志</h3>
-    <p class="description">日志保存在本机，仅在你主动复制、分享或导出时离开应用。每个文件最多 2 MB，最多保留 4 个旧文件。</p>
+    <p class="description">{{ isTauri() ? '日志保存在本机，仅在你主动复制、分享或导出时离开应用。每个文件最多 2 MB，最多保留 4 个旧文件。' : '网页服务日志在 Docker 中查看：docker compose logs。账号 Cookie 不写入诊断日志。' }}</p>
 
     <div class="toolbar">
       <AppButton variant="secondary" size="sm" :loading="loading" @click="loadLogs">刷新</AppButton>
@@ -9,7 +9,7 @@
       <AppButton variant="secondary" size="sm" :disabled="!snapshot.content" @click="exportLogs">导出日志</AppButton>
       <AppButton variant="danger" size="sm" :disabled="snapshot.files.length === 0" @click="clearLogs">清空日志</AppButton>
     </div>
-    <label class="verbose-toggle"><input v-model="verbose" type="checkbox" @change="changeVerbose" /> 本次运行记录详细调试信息</label>
+    <label v-if="isTauri()" class="verbose-toggle"><input v-model="verbose" type="checkbox" @change="changeVerbose" /> 本次运行记录详细调试信息</label>
 
     <div class="filters">
       <select v-model="level" aria-label="日志级别" class="control">
@@ -30,7 +30,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
+import { downloadText, invoke, isTauri } from '../../utils/runtime';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import AppButton from '../../components/common/AppButton.vue';
 import { requestConfirmation } from '../../utils/confirm';
@@ -100,6 +100,7 @@ async function exportLogs() {
   const content = snapshot.value.content;
   if (!content) return;
   try {
+    if (!isTauri()) { downloadText(content, 'coolapk-diagnostics.txt'); return; }
     const { save } = await import('@tauri-apps/plugin-dialog');
     const path = await save({
       defaultPath: 'coolapk-diagnostics.txt',

@@ -22,7 +22,7 @@
       v-if="item.isLivePhoto && resolvedVideoUrl"
       ref="videoRef"
       class="live-photo-video"
-      :src="resolvedVideoUrl"
+      :src="mediaProxyUrl(resolvedVideoUrl)"
       :poster="staticCoverUrl"
       muted
       loop
@@ -47,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import { mediaProxyUrl } from '../../utils/runtime';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import AppImage from '../common/AppImage.vue';
 import { getHdImageUrl } from '../../utils/image';

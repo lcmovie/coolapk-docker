@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   confirmation: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, isTauri: () => false }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, isTauri: () => true }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save: mocks.save }));
 vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile: mocks.writeTextFile }));
 vi.mock('../../../utils/diagnosticLogger', () => ({

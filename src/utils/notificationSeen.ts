@@ -1,3 +1,4 @@
+import { stateStorage } from './persistentStorage';
 import type { NotificationCategory } from './notificationCount';
 
 const STORAGE_PREFIX = 'coolapk.notification.seen.v1';
@@ -28,7 +29,7 @@ function normalizeSeenItems(value: unknown): SeenItems {
 function readSeenItems(uid: string | number, category: NotificationCategory): SeenItems {
   if (!String(uid).trim()) return {};
   try {
-    return normalizeSeenItems(JSON.parse(localStorage.getItem(getStorageKey(uid, category)) || '{}'));
+    return normalizeSeenItems(JSON.parse(stateStorage.getItem(getStorageKey(uid, category)) || '{}'));
   } catch {
     return {};
   }
@@ -36,7 +37,7 @@ function readSeenItems(uid: string | number, category: NotificationCategory): Se
 
 function writeSeenItems(uid: string | number, category: NotificationCategory, items: SeenItems) {
   try {
-    localStorage.setItem(getStorageKey(uid, category), JSON.stringify(items));
+    stateStorage.setItem(getStorageKey(uid, category), JSON.stringify(items));
   } catch (error) {
     console.warn('保存已读通知记录失败:', error);
   }
@@ -71,8 +72,8 @@ export function clearSeenNotificationState(uid: string | number, category: Notif
   if (!String(uid).trim()) return;
 
   try {
-    localStorage.removeItem(getStorageKey(uid, category));
-    localStorage.removeItem(getCountStorageKey(uid, category));
+    stateStorage.removeItem(getStorageKey(uid, category));
+    stateStorage.removeItem(getCountStorageKey(uid, category));
   } catch (error) {
     console.warn('清除已读通知记录失败:', error);
   }
@@ -93,9 +94,9 @@ export function addSeenNotificationCount(
 
   try {
     const key = getCountStorageKey(uid, category);
-    const previous = Number(localStorage.getItem(key) || 0);
+    const previous = Number(stateStorage.getItem(key) || 0);
     const next = Math.min(200, Math.max(0, Number.isFinite(previous) ? Math.floor(previous) : 0) + increment);
-    localStorage.setItem(key, String(next));
+    stateStorage.setItem(key, String(next));
     return next;
   } catch (error) {
     console.warn('保存已读通知数量失败:', error);
@@ -117,15 +118,15 @@ export function takeSeenNotificationCount(
 
   try {
     const key = getCountStorageKey(uid, category);
-    const stored = Number(localStorage.getItem(key) || 0);
+    const stored = Number(stateStorage.getItem(key) || 0);
     const seenCount = Number.isFinite(stored) ? Math.max(0, Math.floor(stored)) : 0;
     if (available === 0) {
-      localStorage.removeItem(key);
+      stateStorage.removeItem(key);
       return 0;
     }
     const restored = Math.min(seenCount, available);
     // 服务端总数低于旧记录，说明部分旧通知已自然消失，收敛保存的抵消数量。
-    if (restored !== seenCount) localStorage.setItem(key, String(restored));
+    if (restored !== seenCount) stateStorage.setItem(key, String(restored));
     return restored;
   } catch (error) {
     console.warn('读取已读通知数量失败:', error);

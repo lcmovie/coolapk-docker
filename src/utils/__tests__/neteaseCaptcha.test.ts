@@ -4,6 +4,8 @@ import {
   extractCaptchaParamsFromError,
   loadNECaptchaScript,
   verifyWithCaptcha,
+  type NECaptchaConfig,
+  type NECaptchaInstance,
 } from '../neteaseCaptcha';
 
 describe('neteaseCaptcha', () => {
@@ -86,7 +88,7 @@ describe('neteaseCaptcha', () => {
   it('resolves formatted token on successful validation', async () => {
     (window as any).initNECaptcha = vi.fn((config, onLoad) => {
       const mockInstance = {
-        popup: vi.fn(),
+        verify: vi.fn(),
         refresh: vi.fn(),
         destroy: vi.fn(),
       };
@@ -105,7 +107,7 @@ describe('neteaseCaptcha', () => {
   it('rejects on user cancellation or verify error', async () => {
     (window as any).initNECaptcha = vi.fn((config, onLoad) => {
       const mockInstance = {
-        popup: vi.fn(),
+        verify: vi.fn(),
         refresh: vi.fn(),
         destroy: vi.fn(),
       };
@@ -116,5 +118,133 @@ describe('neteaseCaptcha', () => {
     });
 
     await expect(verifyWithCaptcha()).rejects.toThrow('用户取消了人机验证');
+  });
+
+  it.each(['verify', 'popUp', 'popup'] as const)('支持异步加载的 %s 方法和无参数 onReady，取消时清理实例', async (method) => {
+    let config!: NECaptchaConfig;
+    let onLoad!: (instance: NECaptchaInstance) => void;
+    window.initNECaptcha = vi.fn((options, loaded) => {
+      config = options;
+      onLoad = loaded!;
+    });
+    const open = vi.fn();
+    const instance = { [method]: open, destroy: vi.fn() } as NECaptchaInstance;
+    const rejection = expect(verifyWithCaptcha()).rejects.toThrow('用户取消了人机验证');
+    await vi.waitFor(() => expect(onLoad).toBeTypeOf('function'));
+    try {
+      expect(() => onLoad(instance)).not.toThrow();
+      config.onReady?.();
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      config.onClose?.();
+      await rejection;
+    }
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+  });
+
+  it('优先使用官方 v2 verify 方法，并保留实例的 this', async () => {
+    const instance: NECaptchaInstance = {
+      verify: vi.fn(function (this: NECaptchaInstance) { expect(this).toBe(instance); }),
+      popUp: vi.fn(),
+      popup: vi.fn(),
+      destroy: vi.fn(),
+    };
+    window.initNECaptcha = vi.fn((config, onLoad) => {
+      expect(config.apiVersion).toBe(2);
+      onLoad?.(instance);
+      config.onClose?.();
+    });
+    await expect(verifyWithCaptcha()).rejects.toThrow('用户取消了人机验证');
+    expect(instance.verify).toHaveBeenCalledTimes(1);
+    expect(instance.popUp).not.toHaveBeenCalled();
+    expect(instance.popup).not.toHaveBeenCalled();
+  });
+
+  it('onReady 早于 onload、重复加载和 destroy 触发关闭时只弹出和清理一次', async () => {
+    const instance = { verify: vi.fn(), destroy: vi.fn() };
+    window.initNECaptcha = vi.fn((config, onLoad) => {
+      instance.destroy.mockImplementation(() => config.onClose?.());
+      config.onReady?.(instance);
+      config.onReady?.();
+      onLoad?.(instance);
+      onLoad?.(instance);
+      config.onClose?.();
+      onLoad?.(instance);
+      config.onVerify?.(null, { validate: 'late-result' });
+    });
+    await expect(verifyWithCaptcha()).rejects.toThrow('用户取消了人机验证');
+    expect(instance.verify).toHaveBeenCalledTimes(1);
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+  });
+
+  it.each(['missing', 'throws'] as const)('异步弹窗方法 %s 时结束请求并清理，不产生未捕获异常', async (failure) => {
+    let onLoad!: (instance: NECaptchaInstance) => void;
+    window.initNECaptcha = vi.fn((_config, loaded) => { onLoad = loaded!; });
+    const instance: NECaptchaInstance = { destroy: vi.fn() };
+    if (failure === 'throws') instance.popUp = vi.fn(() => { throw new Error('SDK 弹窗异常'); });
+    const rejection = expect(verifyWithCaptcha()).rejects.toThrow(failure === 'missing' ? '弹窗方法不可用' : 'SDK 弹窗异常');
+    await vi.waitFor(() => expect(onLoad).toBeTypeOf('function'));
+    expect(() => onLoad(instance)).not.toThrow();
+    await rejection;
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+  });
+
+  it('初始化函数同步抛出异常时移除挂载容器', async () => {
+    window.initNECaptcha = vi.fn(() => { throw new Error('SDK 初始化异常'); });
+    await expect(verifyWithCaptcha()).rejects.toThrow('SDK 初始化异常');
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+  });
+
+  it('初始化没有回调时超时，晚到的实例会清理且不会再弹出', async () => {
+    vi.useFakeTimers();
+    let onLoad!: (instance: NECaptchaInstance) => void;
+    window.initNECaptcha = vi.fn((_config, loaded) => { onLoad = loaded!; });
+    const rejection = expect(verifyWithCaptcha()).rejects.toThrow('初始化超时');
+    await vi.advanceTimersByTimeAsync(15_000);
+    await rejection;
+    const instance = { verify: vi.fn(), destroy: vi.fn() };
+    onLoad(instance);
+    expect(instance.verify).not.toHaveBeenCalled();
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('人工验证没有完成或关闭回调时三分钟超时释放请求', async () => {
+    vi.useFakeTimers();
+    let config!: NECaptchaConfig;
+    const instance = { verify: vi.fn(), destroy: vi.fn() };
+    window.initNECaptcha = vi.fn((options, onLoad) => {
+      config = options;
+      onLoad?.(instance);
+      options.onReady?.();
+    });
+    const rejection = expect(verifyWithCaptcha()).rejects.toThrow('人机验证等待超时');
+    await vi.advanceTimersByTimeAsync(179_999);
+    expect(instance.destroy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await rejection;
+    config.onClose?.();
+    config.onVerify?.(null, { validate: 'late-result' });
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('验证回调早于 onload 时保留成功结果并清理晚到的实例', async () => {
+    const instance = { verify: vi.fn(), destroy: vi.fn() };
+    window.initNECaptcha = vi.fn((config, onLoad) => {
+      config.onVerify?.(null, { validate: 'verified-before-load' });
+      onLoad?.(instance);
+      config.onReady?.(instance);
+      config.onClose?.();
+    });
+    await expect(verifyWithCaptcha()).resolves.toBe('NEC:414e5c9b:verified-before-load');
+    expect(instance.verify).not.toHaveBeenCalled();
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[id^="ne-captcha-"]')).toBeNull();
   });
 });

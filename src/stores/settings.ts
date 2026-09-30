@@ -1,6 +1,7 @@
+import { stateStorage } from '../utils/persistentStorage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
+import { apiRequest, invoke } from '../utils/runtime';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type {
   AppSettings,
@@ -372,7 +373,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function loadLegacySettings(): AppSettings {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = stateStorage.getItem(STORAGE_KEY);
       if (!saved) return cloneDefaultSettings();
       const parsed = JSON.parse(saved);
       const normalized = normalizeSettings(parsed);
@@ -404,7 +405,14 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function initialize() {
-    if (!isTauriRuntime) return;
+    if (!isTauriRuntime) {
+      const disk = await apiRequest<Record<string, unknown>>('/api/store/settings.json');
+      if (Object.keys(disk).length) settings.value = normalizeSettings(disk);
+      if (!settings.value.zoomManuallySet) settings.value.zoom = getSystemZoom();
+      nativeSyncReady = true;
+      void syncDeviceProfile(settings.value);
+      return;
+    }
     try {
       const { Store } = await import('@tauri-apps/plugin-store');
       const store = await Store.load(SETTINGS_FILE, { autoSave: false });
@@ -418,7 +426,7 @@ export const useSettingsStore = defineStore('settings', () => {
       syncNativeSettings(settings.value);
       await queueFileSave(settings.value);
     } catch (err) {
-      console.error('加载 settings.json 失败，将回退到 localStorage', err);
+      console.error('加载 settings.json 失败，将回退到 stateStorage', err);
       settings.value = loadLegacySettings();
       if (!settings.value.zoomManuallySet) settings.value.zoom = getSystemZoom();
       persistenceReady = true;
@@ -448,7 +456,11 @@ export const useSettingsStore = defineStore('settings', () => {
           void queueFileSave(newVal);
         } else {
           try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(newVal));
+            stateStorage.setItem(STORAGE_KEY, JSON.stringify(newVal));
+            const snapshot = JSON.parse(JSON.stringify(newVal));
+            saveQueue = saveQueue.catch(() => {}).then(async () => {
+              await apiRequest('/api/store/settings.json', { method: 'PUT', body: JSON.stringify(snapshot) });
+            }).catch(() => { window.dispatchEvent(new Event('coolapk-storage-error')); });
           } catch (err) {
             console.error('保存本地设置失败', err);
           }
@@ -606,6 +618,13 @@ export const useSettingsStore = defineStore('settings', () => {
     // 使用 transform: scale() 实现缩放，配合反算宽高确保精准充盈视口
     appEl.style.transformOrigin = 'top left';
     appEl.style.transform = `scale(${factor})`;
+    if (!isTauriRuntime) {
+      appEl.style.width = `${100 / factor}vw`;
+      appEl.style.maxWidth = `${1440 / factor}px`;
+      appEl.style.height = `${100 / factor}vh`;
+      appEl.style.transformOrigin = 'top center';
+      return;
+    }
     appEl.style.width = `${100 / factor}vw`;
     appEl.style.height = `${100 / factor}vh`;
   }
@@ -649,7 +668,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // 将用户保存的设备 ID 同步给 Rust 客户端，用于更新请求设备码。
   async function syncDeviceProfile(s: AppSettings): Promise<boolean> {
-    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return true;
+    if (typeof window === 'undefined') return true;
     const f = s.deviceFingerprint;
     const deviceId = f.deviceId?.trim() || undefined;
     try {

@@ -555,6 +555,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { ref, reactive, watch, computed, nextTick, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -883,7 +884,7 @@ function extractUserRemarks(response: any): any[] {
 
 function getCachedUserRemark(accountUid: string, uid: string): string {
   try {
-    const parsed = JSON.parse(localStorage.getItem(USER_REMARK_CACHE_KEY) || '{}');
+    const parsed = JSON.parse(stateStorage.getItem(USER_REMARK_CACHE_KEY) || '{}');
     const cache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     return String(cache[accountUid]?.[uid] || '').trim();
   } catch {
@@ -899,13 +900,13 @@ function applyCachedUserRemark(uid: string) {
 
 function cacheUserRemark(accountUid: string, uid: string, remarkName: string) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(USER_REMARK_CACHE_KEY) || '{}');
+    const parsed = JSON.parse(stateStorage.getItem(USER_REMARK_CACHE_KEY) || '{}');
     const cache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     const accountCache = cache?.[accountUid] && typeof cache[accountUid] === 'object' ? { ...cache[accountUid] } : {};
     if (remarkName) accountCache[uid] = remarkName;
     else delete accountCache[uid];
     cache[accountUid] = accountCache;
-    localStorage.setItem(USER_REMARK_CACHE_KEY, JSON.stringify(cache));
+    stateStorage.setItem(USER_REMARK_CACHE_KEY, JSON.stringify(cache));
   } catch (error) {
     console.warn('保存本地用户备注失败:', error);
   }

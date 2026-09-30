@@ -322,7 +322,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useSettingsStore, buildDeviceUserAgent } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 import { DEVICE_PRESETS } from '../../utils/devicePresets';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../utils/runtime';
 import { useAuthStore } from '../../stores/auth';
 import type { DeviceFingerprintSettings } from '../../types/settings';
 import { parseOrExtractDeviceId, isValidShuzlmDeviceId } from '../../utils/shuzilmDeviceGuide';

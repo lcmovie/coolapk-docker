@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, readonly, ref } from 'vue';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '../utils/runtime';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export type DesktopPlatform = 'windows' | 'macos' | 'linux' | 'web';

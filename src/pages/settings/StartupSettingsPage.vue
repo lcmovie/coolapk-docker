@@ -1,6 +1,7 @@
 <template>
   <div class="settings-section">
     <h3 class="section-title">启动与行为设置</h3>
+    <p v-if="!nativeRuntime" class="tray-tip">网页版由 Docker Compose 管理启动与更新。浏览器窗口由当前设备管理。</p>
 
     <div class="setting-group">
       <h4 class="group-title">启动</h4>
@@ -19,7 +20,7 @@
         </select>
       </div>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">开机自启动</span>
           <span class="row-sub">登录系统后自动在后台启动应用</span>
@@ -34,7 +35,7 @@
         设置开机自启动失败，请重试或检查系统权限。
       </p>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">启动时最小化到托盘</span>
           <span class="row-sub">启动后自动隐藏主窗口，在后台静默运行（适合配合开机自启动）</span>
@@ -42,7 +43,7 @@
         <AppSwitch v-model="settingsStore.settings.startMinimized" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">启动时检查更新</span>
           <span class="row-sub">应用启动后自动向 GitHub Release 检测最新版本</span>
@@ -50,7 +51,7 @@
         <AppSwitch v-model="settingsStore.settings.checkUpdateOnStartup" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">更新渠道</span>
           <span class="row-sub">测试版渠道可提前体验新功能，稳定性略低于稳定版</span>
@@ -71,7 +72,7 @@
         <AppSwitch v-model="settingsStore.settings.experimentalFeatures" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">立即检查更新</span>
           <span class="row-sub">手动检测最新版本并重新弹出更新提示</span>
@@ -90,7 +91,7 @@
 
     <div class="setting-group">
       <h4 class="group-title">窗口行为</h4>
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">关闭主窗口时</span>
           <span class="row-sub">点击关闭按钮后是退出程序，还是最小化到托盘常驻</span>
@@ -105,7 +106,7 @@
         最小化到托盘后，可通过托盘图标或托盘菜单恢复窗口，并从菜单选择“退出”来彻底关闭应用。
       </p>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">窗口置顶</span>
           <span class="row-sub">主窗口始终显示在其他窗口之上</span>
@@ -113,7 +114,7 @@
         <AppSwitch v-model="settingsStore.settings.alwaysOnTop" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="nativeRuntime" class="setting-row">
         <div class="row-info">
           <span class="row-label">记忆窗口大小与位置</span>
           <span class="row-sub">重启应用后恢复上次的窗口位置与大小（默认开启）</span>
@@ -129,7 +130,7 @@
         <AppSwitch v-model="settingsStore.settings.disableAutoMobileMode" />
       </div>
 
-      <p class="tray-tip">
+      <p v-if="nativeRuntime" class="tray-tip">
         <i class="fas fa-info-circle"></i>
         应用支持单实例运行：重复启动时会自动聚焦已有窗口，不会打开多个实例。
       </p>
@@ -139,10 +140,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { isTauri } from '../../utils/runtime';
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 
 const settingsStore = useSettingsStore();
+const nativeRuntime = isTauri();
 const autostartError = ref(false);
 
 const closeBehavior = computed({
@@ -157,6 +160,7 @@ const updateTipHidden = computed(
 );
 
 onMounted(async () => {
+  if (!nativeRuntime) return;
   // 以系统实际状态为准校正开关（如用户在任务管理器中关闭了自启动）
   try {
     const { isEnabled } = await import('@tauri-apps/plugin-autostart');

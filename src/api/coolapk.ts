@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '../utils/runtime';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
@@ -18,6 +18,7 @@ async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs
     throw new Error(`Rust API returned an invalid response for ${tauriCmd}`);
   } catch (err) {
     rustError = err;
+    if (!isTauri()) throw err;
     console.warn(`[Tauri Invoke fallback to Python] cmd: ${tauriCmd}`, err);
   }
 
@@ -1340,6 +1341,9 @@ export class CoolapkTauriAPI {
       }
     }
     // 非 http(s)（如 mailto:）与 system 模式交给系统默认程序
+    if (!isTauri() && !/^(https?:\/\/|mailto:)/i.test(url)) {
+      throw new Error('不支持的链接协议');
+    }
     try {
       await invoke('open_url', { url, mode: 'system' });
     } catch {

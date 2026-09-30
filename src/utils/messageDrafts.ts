@@ -1,3 +1,4 @@
+import { stateStorage } from './persistentStorage';
 import { readTauriStoreValue, updateTauriStoreValue, writeTauriStoreValue } from './tauriStore';
 
 interface MessageDraft {
@@ -31,10 +32,10 @@ function loadDraftMap(value: unknown): MessageDraftMap {
 function migrateLegacyDrafts(): MessageDraftMap {
   const migrated: MessageDraftMap = {};
   try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
+    for (let i = 0; i < stateStorage.length; i += 1) {
+      const key = stateStorage.key(i);
       if (!key?.startsWith(LEGACY_STORAGE_PREFIX)) continue;
-      const raw = localStorage.getItem(key);
+      const raw = stateStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw) as Partial<MessageDraft>;
       if (typeof parsed.text === 'string' && parsed.text.trim()) {
@@ -50,11 +51,11 @@ function migrateLegacyDrafts(): MessageDraftMap {
 function removeLegacyDrafts(): void {
   try {
     const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
+    for (let i = 0; i < stateStorage.length; i += 1) {
+      const key = stateStorage.key(i);
       if (key?.startsWith(LEGACY_STORAGE_PREFIX)) keys.push(key);
     }
-    keys.forEach((key) => localStorage.removeItem(key));
+    keys.forEach((key) => stateStorage.removeItem(key));
   } catch {
     // 忽略旧数据清理失败。
   }

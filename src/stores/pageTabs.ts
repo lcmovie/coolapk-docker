@@ -1,3 +1,4 @@
+import { stateStorage } from '../utils/persistentStorage';
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { RouteLocationNormalizedLoaded, RouteLocationNormalized } from 'vue-router';
@@ -23,9 +24,9 @@ const STORAGE_KEY = 'coolapk_page_tabs_v1';
 const homeTab: PageTab = { id: 'home', route: '/', title: '首页', icon: 'fas fa-house', closable: false, generation: 0, pinned: true, favorite: false };
 
 function loadSavedPages(): SavedPageTab[] {
-  if (typeof localStorage === 'undefined') return [];
+  if (typeof stateStorage === 'undefined') return [];
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const parsed = JSON.parse(stateStorage.getItem(STORAGE_KEY) || '[]');
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((item): item is SavedPageTab => Boolean(item && typeof item.id === 'string' && typeof item.route === 'string' && item.route.startsWith('/') && typeof item.title === 'string' && typeof item.icon === 'string' && (item.pinned || item.favorite))).slice(0, 100).map((item, index) => ({ ...item, pinned: Boolean(item.pinned), favorite: Boolean(item.favorite), order: Number.isFinite(item.order) ? item.order : index }));
   } catch {
@@ -46,9 +47,9 @@ export const usePageTabsStore = defineStore('pageTabs', () => {
   const favoritePages = computed(() => savedPages.value.filter((page) => page.favorite).sort((a, b) => a.order - b.order));
 
   function persistSavedPages() {
-    if (typeof localStorage === 'undefined') return;
+    if (typeof stateStorage === 'undefined') return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedPages.value));
+      stateStorage.setItem(STORAGE_KEY, JSON.stringify(savedPages.value));
     } catch (error) {
       console.warn('保存页面标签失败:', error);
     }

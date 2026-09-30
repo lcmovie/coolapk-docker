@@ -1,6 +1,7 @@
+import { stateStorage } from '../utils/persistentStorage';
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '../utils/runtime';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useSettingsStore } from './settings';
 import type { DownloadStatus, DownloadTask } from '../types/download';
@@ -30,7 +31,7 @@ function createTaskId() {
 
 function readTasks(): DownloadTask[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = stateStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -54,7 +55,7 @@ function readTasks(): DownloadTask[] {
 
 function writeTasks(tasks: DownloadTask[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    stateStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
   } catch (error) {
     console.warn('保存下载历史失败:', error);
   }

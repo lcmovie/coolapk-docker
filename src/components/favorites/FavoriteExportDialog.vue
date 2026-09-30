@@ -327,6 +327,7 @@
 </template>
 
 <script setup lang="ts">
+import { isTauri } from '../../utils/runtime';
 import { computed, reactive, ref, watch } from 'vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAuthStore } from '../../stores/auth';
@@ -448,6 +449,7 @@ async function refreshDownloadPath() {
 }
 
 async function chooseDownloadDir() {
+  if (!isTauri()) { window.alert('网页版导出文件固定保存在 NAS 安装目录的 data/exports 下。'); return; }
   try {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const selected = await open({ directory: true, title: '选择导出保存目录' });

@@ -100,7 +100,7 @@
             </div>
 
             <!-- 官方直连授权核心主视觉卡片 -->
-            <div class="official-login-card">
+            <div v-if="nativeRuntime" class="official-login-card">
               <div class="card-hero-icon">
                 <img src="../../assets/coolapk-logo-rounded.png" alt="Coolapk" class="hero-logo" />
               </div>
@@ -122,6 +122,10 @@
               </button>
             </div>
 
+            <div v-else class="status-alert alert-debug">
+              <i class="fas fa-server alert-icon"></i>
+              <span>网页版使用 Cookie 凭据导入。凭据保存在 NAS 安装目录，刷新网页和重建容器后自动恢复；浏览器无法自动读取酷安官网的 Cookie。</span>
+            </div>
             <!-- 提示状态框 -->
             <div v-if="successMessage" class="status-alert alert-success">
               <i class="fas fa-check-circle alert-icon"></i>
@@ -230,7 +234,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
-import { listen } from '@tauri-apps/api/event';
+import { isTauri, listen } from '../../utils/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
@@ -240,9 +244,10 @@ import AppAvatar from '../common/AppAvatar.vue';
 import AppConfirmDialog from '../common/AppConfirmDialog.vue';
 
 const authStore = useAuthStore();
+const nativeRuntime = isTauri();
 
 const activeTab = ref<'cookie'>('cookie');
-const showAdvanced = ref(false);
+const showAdvanced = ref(!nativeRuntime);
 
 const COOKIE_GUIDE_URL = 'https://github.com/daimiaopeng/coolapk-desktop/blob/main/docs/cookie-guide.md';
 
@@ -335,6 +340,7 @@ listen('login-window-closed', () => {
 
 // Android 登录页返回主 Activity 时，后台期间的事件可能晚于页面恢复。
 function handleLoginWindowReturn() {
+  if (!nativeRuntime) return;
   if (document.visibilityState === 'visible' && authStore.isLoginModalOpen && !webLoginCompleted) {
     void handleCheckWebLogin(false);
   }
@@ -396,6 +402,11 @@ const switchingUid = ref('');
 function handleReauthorizeAccount(acc: any) {
   expiredUid.value = String(acc.uid);
   errorMessage.value = '';
+  if (!nativeRuntime) {
+    showAdvanced.value = true;
+    successMessage.value = `请导入 ${acc.username || `UID ${acc.uid}`} 的新 Cookie 凭据，验证后会更新保存。`;
+    return;
+  }
   successMessage.value = `请在官方窗口重新登录 ${acc.username || `UID ${acc.uid}`}，完成后会自动更新凭据。`;
   handleOpenWebAuth();
 }
@@ -459,6 +470,7 @@ function switchTab(tab: 'cookie') {
 }
 
 function handleClose() {
+  rawCookieInput.value = '';
   webLoginCompleted = true;
   stopStatusPolling();
   if (closeModalTimer) {
@@ -481,6 +493,7 @@ async function handleCookieLogin() {
 
   try {
     const profile = await authStore.loginWithCookie(rawCookieInput.value);
+    rawCookieInput.value = '';
     successMessage.value = `凭据绑定成功！欢迎，${profile.username || '酷友'}`;
     setTimeout(() => {
       authStore.closeLoginModal();

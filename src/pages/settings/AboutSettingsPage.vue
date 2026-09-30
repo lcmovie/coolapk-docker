@@ -1,6 +1,6 @@
 <template>
   <div class="settings-section">
-    <h3 class="section-title">关于酷安桌面版</h3>
+    <h3 class="section-title">{{ nativeRuntime ? '关于酷安桌面版' : '关于酷安网页版' }}</h3>
 
     <!-- 应用信息 -->
     <div class="setting-group">
@@ -8,7 +8,7 @@
         <img src="../../assets/coolapk-logo-rounded.png" alt="酷安 Logo" class="about-logo" />
         <div class="about-info">
           <div class="about-name-row">
-            <span class="about-name">酷安桌面版</span>
+            <span class="about-name">{{ nativeRuntime ? '酷安桌面版' : '酷安网页版' }}</span>
             <span class="about-version">v{{ appVersion }}</span>
             <span class="about-channel">{{ channelLabel }}</span>
           </div>
@@ -116,6 +116,7 @@
 </template>
 
 <script setup lang="ts">
+import { isTauri } from '../../utils/runtime';
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { APP_VERSION } from '../../constants/version';
@@ -127,6 +128,7 @@ import AppIconButton from '../../components/common/AppIconButton.vue';
 import { openFeedbackMessage } from '../../utils/feedback';
 
 const router = useRouter();
+const nativeRuntime = isTauri();
 const authStore = useAuthStore();
 const appVersion = APP_VERSION;
 const settingsStore = useSettingsStore();

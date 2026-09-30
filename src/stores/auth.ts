@@ -1,3 +1,4 @@
+import { stateStorage } from '../utils/persistentStorage';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -39,8 +40,8 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     isLoggedIn.value = false;
     rawCookie.value = '';
-    localStorage.removeItem('coolapk_cookie');
-    localStorage.removeItem('coolapk_user');
+    stateStorage.removeItem('coolapk_cookie');
+    stateStorage.removeItem('coolapk_user');
   }
 
   function getAvatarUrlByUid(uidStr: string): string {
@@ -111,13 +112,13 @@ export const useAuthStore = defineStore('auth', () => {
 
     // 3. 校验成功，持久化并更新内存 Store
     // 安全说明：登录 Cookie 只写入 Rust 侧（accounts.json），
-    // 绝不写入 localStorage —— 否则任一 XSS 都可直接窃取 SESSID
+    // 绝不写入 stateStorage —— 否则任一 XSS 都可直接窃取 SESSID
     rawCookie.value = '';
     user.value = profile;
     isLoggedIn.value = true;
     clearResourceMemoryCache();
 
-    localStorage.setItem('coolapk_user', JSON.stringify(profile));
+    stateStorage.setItem('coolapk_user', JSON.stringify(profile));
 
     // 保存到多账户库
     await saveProfileToAccounts(profile, trimmed);
@@ -204,7 +205,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = profile;
     isLoggedIn.value = true;
     clearResourceMemoryCache();
-    localStorage.setItem('coolapk_user', JSON.stringify(profile));
+    stateStorage.setItem('coolapk_user', JSON.stringify(profile));
     await loadAccounts();
     return profile;
   }
@@ -216,9 +217,9 @@ export const useAuthStore = defineStore('auth', () => {
   async function initAuth() {
     // 加载多账户列表
     await loadAccounts();
-    // 历史遗留清理：旧版本把 Cookie 明文存在 localStorage，启动时一律清除
+    // 历史遗留清理：旧版本把 Cookie 明文存在 stateStorage，启动时一律清除
     try {
-      localStorage.removeItem('coolapk_cookie');
+      stateStorage.removeItem('coolapk_cookie');
     } catch {
       // 忽略清理异常
     }
@@ -244,7 +245,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = updatedProfile;
         isLoggedIn.value = true;
         updateProfileStats(data);
-        localStorage.setItem('coolapk_user', JSON.stringify(user.value));
+        stateStorage.setItem('coolapk_user', JSON.stringify(user.value));
       }
     } catch (e) {
       // 静默恢复失败：保持未登录，避免缓存资料伪装成有效会话
@@ -286,7 +287,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     user.value = profile;
     isLoggedIn.value = true;
-    localStorage.setItem('coolapk_user', JSON.stringify(profile));
+    stateStorage.setItem('coolapk_user', JSON.stringify(profile));
 
     const tokenStr = `SESSID=${sessid}; uid=${uid}`;
     await CoolapkTauriAPI.saveCookie(tokenStr);
@@ -337,7 +338,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     user.value = profile;
     isLoggedIn.value = true;
-    localStorage.setItem('coolapk_user', JSON.stringify(profile));
+    stateStorage.setItem('coolapk_user', JSON.stringify(profile));
 
     const tokenStr = `SESSID=${sessid}; uid=${uid}`;
     await CoolapkTauriAPI.saveCookie(tokenStr);
@@ -399,7 +400,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
         user.value = profile;
         isLoggedIn.value = true;
         updateProfileStats(data);
-        localStorage.setItem('coolapk_user', JSON.stringify(user.value));
+        stateStorage.setItem('coolapk_user', JSON.stringify(user.value));
         try {
           await CoolapkTauriAPI.persistCurrentAccount(
             uid,
@@ -472,7 +473,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
       exp,
       maxExp
     };
-    localStorage.setItem('coolapk_user', JSON.stringify(user.value));
+    stateStorage.setItem('coolapk_user', JSON.stringify(user.value));
   }
 
   /** 更新当前账号的资料缓存，保证资料页修改后顶部用户信息立即同步。 */
@@ -480,7 +481,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     if (!user.value) return;
     const avatarChanged = typeof data.userAvatar === 'string' && data.userAvatar !== user.value.userAvatar;
     user.value = { ...user.value, ...data };
-    localStorage.setItem('coolapk_user', JSON.stringify(user.value));
+    stateStorage.setItem('coolapk_user', JSON.stringify(user.value));
     if (avatarChanged) clearResourceMemoryCache();
     try {
       await CoolapkTauriAPI.persistCurrentAccount(String(user.value.uid), user.value.username || '', user.value.userAvatar || '');

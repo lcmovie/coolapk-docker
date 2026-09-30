@@ -7,6 +7,12 @@ coverage/
 
 # Rust / Tauri
 src-tauri/target/
+web-server/target/
+data/
+backups/
+build-logs/
+source-test.tar.gz
+test-results/
 src-tauri/gen/
 
 # Generated mobile and Windows Store icon variants (desktop bundles use the root icons)

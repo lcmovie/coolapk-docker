@@ -274,6 +274,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
@@ -392,7 +393,7 @@ const canShowFloatingExpandBtn = computed(() => {
 function toggleLeftSidebar() {
   isLeftSidebarCollapsed.value = !isLeftSidebarCollapsed.value;
   try {
-    localStorage.setItem('coolapk_topic_hub_left_collapsed', isLeftSidebarCollapsed.value ? '1' : '0');
+    stateStorage.setItem('coolapk_topic_hub_left_collapsed', isLeftSidebarCollapsed.value ? '1' : '0');
   } catch {}
 }
 
@@ -427,14 +428,14 @@ function stopResizeLeft() {
   window.removeEventListener('mousemove', onMouseMoveLeft);
   window.removeEventListener('mouseup', stopResizeLeft);
   try {
-    localStorage.setItem('coolapk_topic_hub_left_width', String(leftSidebarWidth.value));
+    stateStorage.setItem('coolapk_topic_hub_left_width', String(leftSidebarWidth.value));
   } catch {}
 }
 
 function resetLeftWidth() {
   leftSidebarWidth.value = DEFAULT_LEFT_WIDTH;
   try {
-    localStorage.setItem('coolapk_topic_hub_left_width', String(DEFAULT_LEFT_WIDTH));
+    stateStorage.setItem('coolapk_topic_hub_left_width', String(DEFAULT_LEFT_WIDTH));
   } catch {}
 }
 
@@ -469,34 +470,34 @@ function stopResizeRight() {
   window.removeEventListener('mousemove', onMouseMoveRight);
   window.removeEventListener('mouseup', stopResizeRight);
   try {
-    localStorage.setItem('coolapk_topic_hub_right_width', String(rightAsideWidth.value));
+    stateStorage.setItem('coolapk_topic_hub_right_width', String(rightAsideWidth.value));
   } catch {}
 }
 
 function resetRightWidth() {
   rightAsideWidth.value = DEFAULT_RIGHT_WIDTH;
   try {
-    localStorage.setItem('coolapk_topic_hub_right_width', String(DEFAULT_RIGHT_WIDTH));
+    stateStorage.setItem('coolapk_topic_hub_right_width', String(DEFAULT_RIGHT_WIDTH));
   } catch {}
 }
 
 function loadPersistedSettings() {
   try {
-    const savedLeftW = localStorage.getItem('coolapk_topic_hub_left_width');
+    const savedLeftW = stateStorage.getItem('coolapk_topic_hub_left_width');
     if (savedLeftW) {
       const n = Number(savedLeftW);
       if (!isNaN(n) && n >= MIN_LEFT_WIDTH && n <= MAX_LEFT_WIDTH) {
         leftSidebarWidth.value = n;
       }
     }
-    const savedRightW = localStorage.getItem('coolapk_topic_hub_right_width');
+    const savedRightW = stateStorage.getItem('coolapk_topic_hub_right_width');
     if (savedRightW) {
       const n = Number(savedRightW);
       if (!isNaN(n) && n >= MIN_RIGHT_WIDTH && n <= MAX_RIGHT_WIDTH) {
         rightAsideWidth.value = n;
       }
     }
-    const savedLeftCollapsed = localStorage.getItem('coolapk_topic_hub_left_collapsed');
+    const savedLeftCollapsed = stateStorage.getItem('coolapk_topic_hub_left_collapsed');
     if (savedLeftCollapsed === '1') {
       isLeftSidebarCollapsed.value = true;
     }

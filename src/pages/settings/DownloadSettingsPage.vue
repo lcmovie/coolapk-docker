@@ -12,7 +12,8 @@
           </span>
         </div>
         <div class="row-actions">
-          <AppButton variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
+          <AppButton v-if="nativeRuntime" variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
+          <AppButton v-else variant="secondary" size="sm" @click="CoolapkTauriAPI.openApkDownloadDirectory()">查看已保存文件</AppButton>
           <AppButton
             v-if="settingsStore.settings.downloadPath"
             variant="ghost"
@@ -90,11 +91,11 @@
         <div class="row-info">
           <span class="row-label">图片缓存目录</span>
           <span class="row-sub cache-path">{{ cacheDirectoryText }}</span>
-          <span class="row-sub">自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变</span>
+          <span class="row-sub">{{ nativeRuntime ? '自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变' : '缓存持久保存在 NAS 安装目录的 data/cache 下' }}</span>
         </div>
         <div class="row-actions">
           <AppButton variant="ghost" size="sm" @click="openCacheDir">打开目录</AppButton>
-          <AppButton variant="secondary" size="sm" @click="chooseCacheDir">更改目录</AppButton>
+          <AppButton v-if="nativeRuntime" variant="secondary" size="sm" @click="chooseCacheDir">更改目录</AppButton>
           <AppButton
             v-if="settingsStore.settings.cachePath"
             variant="ghost"
@@ -188,6 +189,7 @@
 </template>
 
 <script setup lang="ts">
+import { isTauri } from '../../utils/runtime';
 import { computed, onMounted, ref } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
@@ -197,6 +199,7 @@ import { CoolapkTauriAPI } from '../../api/coolapk';
 import { clearResourceCache, clearResourceMemoryCache } from '../../utils/resourceCache';
 
 const settingsStore = useSettingsStore();
+const nativeRuntime = isTauri();
 const authStore = useAuthStore();
 
 const historyExporting = ref(false);

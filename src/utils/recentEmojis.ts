@@ -1,3 +1,4 @@
+import { stateStorage } from './persistentStorage';
 import { ref } from 'vue';
 import { EMOJI_MAP } from './coolapkEmoji';
 import { readTauriStoreValue, writeTauriStoreValue } from './tauriStore';
@@ -30,10 +31,10 @@ export function loadRecentEmojis(forceReload = false): Promise<void> {
   if (loadPromise && !forceReload) return loadPromise;
 
   loadPromise = (async () => {
-    // 1. 先尝试从本地 localStorage 快速读取，避免界面闪烁
+    // 1. 先尝试从本地 stateStorage 快速读取，避免界面闪烁
     let cachedList: string[] = [];
     try {
-      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      const raw = stateStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
         cachedList = normalizeRecentEmojis(JSON.parse(raw));
         if (cachedList.length > 0 && recentEmojis.value.length === 0) {
@@ -50,9 +51,9 @@ export function loadRecentEmojis(forceReload = false): Promise<void> {
       if (stored !== undefined) {
         const parsed = normalizeRecentEmojis(stored);
         recentEmojis.value = parsed;
-        // 同步回 localStorage
+        // 同步回 stateStorage
         try {
-          localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(parsed));
+          stateStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(parsed));
         } catch {
           // 忽略
         }
@@ -62,7 +63,7 @@ export function loadRecentEmojis(forceReload = false): Promise<void> {
       console.warn('从 Tauri 存储加载 recent_emojis.json 失败:', err);
     }
 
-    // 3. 如果 Tauri 存储为空但 localStorage 有数据，迁移存入 Tauri 存储
+    // 3. 如果 Tauri 存储为空但 stateStorage 有数据，迁移存入 Tauri 存储
     if (cachedList.length > 0) {
       recentEmojis.value = cachedList;
       try {
@@ -86,7 +87,7 @@ void loadRecentEmojis();
  */
 function persist(updated: string[]) {
   try {
-    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(updated));
+    stateStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(updated));
   } catch {
     // 忽略
   }
@@ -104,7 +105,7 @@ export function getRecentEmojis(): string[] {
     return recentEmojis.value;
   }
   try {
-    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const raw = stateStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return [];
     return normalizeRecentEmojis(JSON.parse(raw));
   } catch {
@@ -113,7 +114,7 @@ export function getRecentEmojis(): string[] {
 }
 
 /**
- * 记录一次表情使用（排重并置顶，持久化至磁盘与 localStorage）
+ * 记录一次表情使用（排重并置顶，持久化至磁盘与 stateStorage）
  */
 export function recordRecentEmoji(name: string): void {
   if (!name || !EMOJI_MAP[name]) return;

@@ -133,6 +133,7 @@
 </template>
 
 <script setup lang="ts">
+import { stateStorage } from '../utils/persistentStorage';
 import { ref, computed } from 'vue';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import AppButton from '../components/common/AppButton.vue';
@@ -214,7 +215,7 @@ function hotWordText(word: string | any): string {
 
 function loadHistory() {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = stateStorage.getItem(HISTORY_KEY);
     history.value = raw ? JSON.parse(raw) : [];
   } catch {
     history.value = [];
@@ -223,7 +224,7 @@ function loadHistory() {
 
 function saveHistory() {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value.slice(0, 12)));
+    stateStorage.setItem(HISTORY_KEY, JSON.stringify(history.value.slice(0, 12)));
   } catch {
     // 忽略本地存储异常
   }

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './runtime';
 import { debug as writeDebug, error as writeError, info as writeInfo, warn as writeWarn } from '@tauri-apps/plugin-log';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';

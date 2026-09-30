@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '../../utils/runtime';
 import { useRoute, useRouter } from 'vue-router';
 import TopBar from './TopBar.vue';
 import MainSidebar from './MainSidebar.vue';

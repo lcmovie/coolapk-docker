@@ -36,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { isTauri, mediaProxyUrl } from '../../utils/runtime';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
 import AppImage from '../common/AppImage.vue';
@@ -55,6 +56,7 @@ let resolutionVersion = 0;
 
 function getPlayableSource(url: string): string {
   if (!url) return '';
+  if (!isTauri()) return mediaProxyUrl(url);
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();

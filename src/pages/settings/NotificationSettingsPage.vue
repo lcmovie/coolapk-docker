@@ -34,7 +34,7 @@
           <span class="row-label">系统桌面通知</span>
           <span class="row-sub">应用在后台或最小化到托盘时，通过系统通知气泡提醒新消息</span>
         </div>
-        <AppSwitch v-model="settingsStore.settings.desktopNotifications" />
+        <AppSwitch :model-value="settingsStore.settings.desktopNotifications" @update:model-value="setDesktopNotifications" />
       </div>
       <div v-if="settingsStore.settings.desktopNotifications" class="setting-row">
         <div class="row-info">
@@ -57,7 +57,7 @@
       </div>
       <p class="tray-tip">
         <i class="fas fa-info-circle"></i>
-        桌面通知需要系统授权，首次提醒时会自动请求权限。
+        {{ nativeRuntime ? '桌面通知需要系统授权，首次提醒时会自动请求权限。' : '浏览器通知需要 HTTPS 和通知权限，页面保持打开时检测新消息。' }}
       </p>
     </div>
   </div>
@@ -66,8 +66,21 @@
 <script setup lang="ts">
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
+import { isTauri } from '../../utils/runtime';
+import { showToast } from '../../utils/toast';
 
 const settingsStore = useSettingsStore();
+const nativeRuntime = isTauri();
+async function setDesktopNotifications(enabled: boolean) {
+  if (!enabled || nativeRuntime) { settingsStore.settings.desktopNotifications = enabled; return; }
+  if (!window.isSecureContext || typeof Notification === 'undefined') {
+    showToast('浏览器通知需要通过 HTTPS 访问，并使用支持通知的浏览器。', 'error');
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  settingsStore.settings.desktopNotifications = permission === 'granted';
+  if (permission !== 'granted') showToast('请在浏览器的网站设置中允许通知。', 'info');
+}
 </script>
 
 <style scoped>
