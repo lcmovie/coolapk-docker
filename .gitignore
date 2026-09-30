@@ -13,6 +13,7 @@ backups/
 build-logs/
 source-test.tar.gz
 test-results/
+.playwright-mcp/
 src-tauri/gen/
 
 # Generated mobile and Windows Store icon variants (desktop bundles use the root icons)
@@ -41,4 +42,5 @@ raw_debug.json
 .DS_Store
 Thumbs.db
 desktop.ini
+archives/private/
 coolapk_all_decompiled/

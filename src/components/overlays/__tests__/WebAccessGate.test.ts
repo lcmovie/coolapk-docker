@@ -27,6 +27,7 @@ describe('WebAccessGate', () => {
   it('shows an incorrect password error and allows another login attempt', async () => {
     const ready = vi.fn();
     const wrapper = mount(WebAccessGate, { props: { configured: true, onReady: ready } });
+    expect(wrapper.get('h1').text()).toBe('打开酷安docker版');
     api.request.mockRejectedValueOnce(new Error('密码错误'));
     await wrapper.find('#access-password').setValue('wrong-test-password');
     await wrapper.find('form').trigger('submit');

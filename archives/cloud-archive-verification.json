@@ -1,0 +1,12 @@
+[
+  {
+    "file": "cloud-current-20260930.tar.gz",
+    "sha256": "8a1bbd103b7265b31c9681c09c793f1227bbad4fb24e8346ff58eb9080bc84fe",
+    "bytes": 15027953
+  },
+  {
+    "file": "cloud-image-20260930.tar.gz",
+    "sha256": "e6954ab33db1d8de0bd52bc24065c5f9e37f03f0f856d5e519785ad80cdfe9eb",
+    "bytes": 40645473
+  }
+]

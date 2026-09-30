@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DEVELOPER_UID, getFeedbackTemplate, openFeedbackMessage } from '../feedback';
+import { DEVELOPER_UID, getFeedbackTemplate, openFeedbackPage } from '../feedback';
+import { CoolapkTauriAPI } from '../../api/coolapk';
+import { SUPPORT_GITHUB_URL } from '../../constants/app';
+
+vi.mock('../../api/coolapk', () => ({ CoolapkTauriAPI: { openUrl: vi.fn().mockResolvedValue(undefined) } }));
 
 describe('feedback utils', () => {
   it('开发者 UID 正确', () => {
@@ -8,31 +12,21 @@ describe('feedback utils', () => {
 
   it('生成包含版本号和系统的反馈模版', () => {
     const template = getFeedbackTemplate();
-    expect(template).toContain('【酷安客户端问题反馈】');
+    expect(template).toContain('【酷安docker版问题反馈】');
     expect(template).toContain('客户端版本：');
     expect(template).toContain('操作系统：');
     expect(template).toContain('问题描述：');
   });
 
-  it('未登录时触发 openLoginModal', () => {
-    const router = { push: vi.fn() } as any;
-    const openLoginModal = vi.fn();
-    openFeedbackMessage(router, { isLoggedIn: false, openLoginModal });
-
-    expect(openLoginModal).toHaveBeenCalled();
-    expect(router.push).not.toHaveBeenCalled();
+  it('反馈无需酷安账号，直接打开维护者 GitHub 主页', async () => {
+    await openFeedbackPage();
+    expect(CoolapkTauriAPI.openUrl).toHaveBeenCalledWith(SUPPORT_GITHUB_URL, 'system');
   });
 
-  it('已登录时跳转 /messages 并携带开发者 UID 与模版', () => {
-    const router = { push: vi.fn() } as any;
-    openFeedbackMessage(router, { isLoggedIn: true });
-
-    expect(router.push).toHaveBeenCalledWith(expect.objectContaining({
-      path: '/messages',
-      query: expect.objectContaining({
-        uid: '1451266',
-        initialText: expect.stringContaining('【酷安客户端问题反馈】'),
-      }),
-    }));
+  it('反馈链接不再指向原作者私信或上游仓库', async () => {
+    vi.mocked(CoolapkTauriAPI.openUrl).mockClear();
+    await openFeedbackPage();
+    expect(CoolapkTauriAPI.openUrl).toHaveBeenCalledOnce();
+    expect(CoolapkTauriAPI.openUrl).toHaveBeenCalledWith('https://github.com/lcmovie', 'system');
   });
 });

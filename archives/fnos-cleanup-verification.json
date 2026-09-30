@@ -1,0 +1,21 @@
+{
+  "completed_at_utc": "2026-09-30T08:27:21.150567+00:00",
+  "scope": "Coolapk project on fnOS only",
+  "removed_directory": "/volume1/docker/coolapk-docker",
+  "removed_temporary_archives": [
+    "/volume1/docker/coolapk-docker.archive-20260930.tar.gz",
+    "/volume1/docker/coolapk-docker.history-20260930.dockerbuild"
+  ],
+  "containers_removed": 1,
+  "project_network_absent": true,
+  "images_removed": 5,
+  "build_history_removed": 6,
+  "build_cache_records_removed": 48,
+  "other_build_cache_records_preserved": 252,
+  "other_containers_unchanged": 17,
+  "port_18966_listener_absent": true,
+  "project_named_paths_remaining": [],
+  "local_backup_hashes_rechecked_before_deletion": true,
+  "cloud_deployment_preserved": true,
+  "functional_tests_resumed": false
+}

@@ -21,7 +21,7 @@
           v-model="settingsStore.settings.deviceSignature"
           type="text"
           class="text-input"
-          placeholder="如：酷安桌面版"
+          placeholder="如：酷安docker版"
           maxlength="40"
         />
       </div>
@@ -35,7 +35,7 @@
       <h4 class="group-title">账号隐私</h4>
       <p class="tray-tip">
         <i class="fas fa-info-circle"></i>
-        “允许通过酷安号搜索我”等账号级隐私设置由酷安官方服务器管理，桌面客户端暂未开放对应接口，请在酷安 App 中设置。
+        “允许通过酷安号搜索我”等账号级隐私设置由酷安官方服务器管理，酷安docker版暂未开放对应接口，请在酷安 App 中设置。
       </p>
     </div>
   </div>

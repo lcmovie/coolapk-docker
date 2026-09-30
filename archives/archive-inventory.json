@@ -1,0 +1,66 @@
+{
+  "private_directory": "archives/private",
+  "private_files": [
+    {
+      "file": "cloud-credential.windows-dpapi.xml",
+      "bytes": 882,
+      "sha256": "ae23b5bbb2263a7eae0c015d295d59d8b78f0db104eed5724ed9454b84c53455"
+    },
+    {
+      "file": "cloud-current-20260930.tar.gz",
+      "bytes": 15027953,
+      "sha256": "8a1bbd103b7265b31c9681c09c793f1227bbad4fb24e8346ff58eb9080bc84fe"
+    },
+    {
+      "file": "cloud-image-20260930.tar.gz",
+      "bytes": 40645473,
+      "sha256": "e6954ab33db1d8de0bd52bc24065c5f9e37f03f0f856d5e519785ad80cdfe9eb"
+    },
+    {
+      "file": "fnos-build-history-20260930.dockerbuild",
+      "bytes": 162877,
+      "sha256": "d73202f107b807590c475a8b4359135c2822486cafa2d8d0a65fdec78563063d"
+    },
+    {
+      "file": "fnos-cache-after-cleanup.json",
+      "bytes": 115985,
+      "sha256": "3f39e817e7abd09fc0b242c664f789d363b9ed3a33d5edf9b56f63d9dfa38a9c"
+    },
+    {
+      "file": "fnos-cleanup-preflight.json",
+      "bytes": 28484,
+      "sha256": "c84143a537a7cde169d1a722cf278edb1e9a8571276c964c186eab158fee97a5"
+    },
+    {
+      "file": "fnos-complete-20260930.tar.gz",
+      "bytes": 247146352,
+      "sha256": "9e0943ce17ca2ce32f2cb0840b2211e1b8098e0938c47b36fafa0afdb3b3424e"
+    },
+    {
+      "file": "local-source-before-archive.tar.gz",
+      "bytes": 6082814,
+      "sha256": "f4e480e6797f98213b1d3c3d0b863081415dbac356d6d0026fb08dcabe54f707"
+    },
+    {
+      "file": "nas-cache-reviewed.json",
+      "bytes": 60941,
+      "sha256": "3827ff25efc81e4d84a7cb29c8b48e9a5ba74af924f4306add17156a5f6ff65a"
+    },
+    {
+      "file": "source-history.bundle",
+      "bytes": 16797775,
+      "sha256": "79400b22603f3bae065e9475d3c5a66958139a1f59f641a05fef301d9c617328"
+    },
+    {
+      "file": "uncommitted-changes.patch",
+      "bytes": 52796,
+      "sha256": "bfd371cefbd6f1c7c7cae3bb1d20f67ba2264586498f8042f74e1f6f4fd34471"
+    }
+  ],
+  "operations_files": 17,
+  "operations_bytes": 39878,
+  "operations_combined_sha256": "bf8a1466441ece1e67bccf3c39b80e58ff4b21a2c36d5dae64f5a11675686849",
+  "private_total_bytes": 326162210,
+  "private_files_excluded_from_git": true,
+  "private_acl_inheritance_disabled": true
+}

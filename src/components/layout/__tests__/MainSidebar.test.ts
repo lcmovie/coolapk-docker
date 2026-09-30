@@ -12,6 +12,7 @@ vi.mock('vue-router', async (importOriginal) => {
 
 import MainSidebar from '../MainSidebar.vue';
 import * as routeTransition from '../../../utils/routeTransition';
+import { CoolapkTauriAPI } from '../../../api/coolapk';
 
 const RouterLinkStub = {
   props: ['to'],
@@ -43,6 +44,7 @@ describe('MainSidebar', () => {
 
   it('点击底部操作按钮（如反馈/更新）时不触发 triggerSidebarTransition', async () => {
     const spy = vi.spyOn(routeTransition, 'triggerSidebarTransition');
+    const openSupport = vi.spyOn(CoolapkTauriAPI, 'openUrl').mockResolvedValue(undefined);
     const wrapper = mount(MainSidebar, {
       global: {
         stubs: {
@@ -56,6 +58,7 @@ describe('MainSidebar', () => {
 
     await feedbackButton.trigger('click');
     expect(spy).not.toHaveBeenCalled();
+    expect(openSupport).toHaveBeenCalledWith('https://github.com/lcmovie', 'system');
   });
 
   it('存在一键反馈与更新按钮并正常展示', async () => {
@@ -68,6 +71,7 @@ describe('MainSidebar', () => {
     });
 
     const feedbackButton = wrapper.find('.feedback-btn');
+    expect(wrapper.get('.app-name').text()).toBe('酷安docker版');
     expect(feedbackButton.exists()).toBe(true);
     expect(feedbackButton.text()).toContain('反馈');
 

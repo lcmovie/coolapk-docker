@@ -2,33 +2,36 @@
   <img src="src/assets/coolapk-logo-rounded.png" width="96" alt="酷安 Logo">
 </p>
 
-<h1 align="center">酷安</h1>
+<h1 align="center">酷安docker版</h1>
 
-<p align="center">基于 Tauri 2、Vue 3 和 Rust 的非官方酷安桌面客户端。</p>
+<p align="center">基于 Vue 3、TypeScript、Pinia、Vite、Rust / Axum 和 Docker Compose 的第三方酷安 Docker 客户端。</p>
 
 <p align="center">
-  <a href="https://github.com/daimiaopeng/coolapk-desktop/actions/workflows/build.yml"><img src="https://github.com/daimiaopeng/coolapk-desktop/actions/workflows/build.yml/badge.svg" alt="构建状态"></a>
-  <a href="https://github.com/daimiaopeng/coolapk-desktop/releases"><img src="https://img.shields.io/github/v/release/daimiaopeng/coolapk-desktop?color=41b883" alt="最新版本"></a>
+  <a href="https://github.com/lcmovie">联系与支持</a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT 许可证"></a>
-  <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker" alt="Docker Compose">
 </p>
 
 > [!IMPORTANT]
-> 本项目是社区维护的非官方客户端，与酷安官方及深圳酷安网络科技有限公司无隶属、授权或合作关系。酷安名称、Logo 和相关商标归其权利人所有。
+> 本项目是社区维护的第三方 Docker 客户端，与酷安官方及深圳酷安网络科技有限公司无隶属、授权或合作关系。酷安名称、Logo 和相关商标归其权利人所有。
 
-## Docker 原生网页版
+## 酷安docker版
 
 本分支增加原生网页运行方式：复用桌面版 Vue 界面，由独立 Rust HTTP 服务提供接口和持久化数据，不需要图形桌面或 VNC。桌面版仍使用原有 Tauri 运行方式。
 
 支持通过 `docker compose up -d --build` 构建和部署。账号 Cookie、应用访问会话、设置、历史和下载文件保存在安装目录的 `data/`，容器重新创建后继续保留；Cookie 的有效期仍由酷安决定。
 
-飞牛测试实例部署于 `/volume1/docker/coolapk-docker`，NAS 端口 `18966`，远程入口为 [酷安网页版](https://coolapk.example.com:88/)。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md) 和 [验证说明](docs/docker-testing.md)。
+项目已迁移到服务器 `203.0.113.10`，安装目录为 `/opt/coolapk-docker`，端口 `18966`，服务继续运行。外网沿用 [酷安docker版](https://coolapk.example.com:88/)，Lucky 目标已切换到新机器。旧 NAS 项目已完成完整备份校验、删除和资源复核，其他服务保持不变。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md)、[验证说明](docs/docker-testing.md) 和 [本轮修复与迁移记录](docs/docker-migration.md)。
 
-酷安 Cookie 由用户后续在网页自行导入，当前未导入真实 Cookie，已登录账号业务尚未验证。桌面 WebView 自动授权不适用于浏览器。
+酷安 Cookie 由用户在网页自行导入；测试不代用户导入、展示或操作真实凭据。迁移保留已有账号数据并验证存储恢复，真实账号业务操作需要独立授权与验证。桌面 WebView 自动授权不适用于浏览器。
 
-## 📥 下载与安装
+## 本地归档
 
-请前往 [👉 GitHub Releases](https://github.com/daimiaopeng/coolapk-desktop/releases) 获取各平台的最新版本程序包：
+完整工作目录已归档到 `D:\dev\coolapk`，新的 Git 工作仓库已继承原 `feat/docker-web` 历史，以 `main` 继续维护并保留原标签。原历史 bundle、本地源码快照、NAS 完整资料、新机当前资料及实际运行镜像保存在 `archives/private/`；该目录不进入 Git，并使用 Windows ACL 保护。备份含真实部署配置和账号数据，勿公开或提交。归档内容、恢复步骤及已完成的 NAS 清理见 [本地归档与恢复](docs/archive-2026-09-30.md)，脱敏校验记录保存在 `archives/` 根目录。
+
+## 原项目桌面与移动端产物参考
+
+以下为上游原项目的桌面和移动端产物参考，网页安装以 Docker [部署说明](docs/docker-deployment.md) 为准。原项目程序包位于 [上游 GitHub Releases](https://github.com/daimiaopeng/coolapk-desktop/releases)：
 
 | 操作系统 | 文件格式 | 推荐安装包 |
 | :--- | :--- | :--- |
@@ -57,15 +60,11 @@
 
 ![界面预览 7](docs/screenshots/7.png)
 
-## Star 走势
+## 项目来源与支持
 
-<a href="https://star-history.com/#daimiaopeng/coolapk-desktop&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date" />
-   <img alt="Star 走势趋势图" src="https://api.star-history.com/svg?repos=daimiaopeng/coolapk-desktop&type=Date" />
- </picture>
-</a>
+感谢原作者 [daimiaopeng](https://github.com/daimiaopeng/coolapk-desktop) 及原项目贡献者。本分支复用原 Vue 界面和 Rust 酷安协议逻辑，增加 Axum HTTP 服务、Docker Compose、服务端持久化和浏览器能力适配。
+
+联系与支持统一使用 [lcmovie 的 GitHub](https://github.com/lcmovie)。GitHub 统计暂时显示为 `0`，不请求原仓库的实时统计。
 
 ## 功能
 
@@ -77,7 +76,7 @@
 - **收藏管理**：集成云端收藏与收藏单合集，支持全屏满幅平铺浏览
 - **广场中心**：涵盖话题广场、评测区、应用中心与游戏中心
 - **私信聊天**：支持文字与图片消息，支持多账号快速切换
-- **账号能力**：官方授权或 Cookie 登录（详见 [手动抓取与导入 Cookie 指南](docs/cookie-guide.md)），多账户本地保存与一键切账号
+- **账号能力**：Cookie 导入（详见 [手动抓取与导入 Cookie 指南](docs/cookie-guide.md)），多账户保存与一键切账号；桌面授权代码保留在原项目运行方式中
 - **个性化与布局**：全屏无边距满幅平铺、深浅色主题、侧边栏折叠与默认启动页设置
 - **跨平台**：Windows、macOS、Linux 原生桌面应用，以及 Android、iOS 移动端应用
 
@@ -86,12 +85,12 @@
 ## 隐私与网络访问
 
 - 项目不内置个人 Cookie、账号 Token、统计 SDK 或遥测服务。
-- 登录凭据由用户手动输入，只保存在本地应用数据目录的账户库中，不写入仓库。
-- 客户端标识在每次启动时临时生成，不使用开发者或用户的固定设备指纹。
-- 应用会直接访问 `api.coolapk.com`、酷安图片/静态资源域名；不会向第三方字体或图标 CDN 发起请求。
+- 登录凭据由用户手动输入，保存到部署安装目录 `data/accounts/` 的账户库，不写入仓库。
+- Docker 服务的设备身份、应用访问会话和设置保存在安装目录 `data/`，容器重新创建后恢复。
+- Rust 服务请求酷安 API 和媒体，浏览器通过同源服务访问数据；人工验证码按需加载官方 SDK。
 - 请勿在 Issue、日志或截图中提交真实 Cookie、私信和其他个人数据。
 
-详见 [SECURITY.md](SECURITY.md)。
+部署存储与凭据保护参见 [部署说明](docs/docker-deployment.md) 和 [归档保护说明](docs/archive-2026-09-30.md)。
 
 ## 开发环境
 
@@ -206,7 +205,9 @@ cargo check
 
 ```text
 src/                         Vue 3 / TypeScript 前端
-  api/coolapk.ts             Tauri 命令调用封装
+  api/coolapk.ts             桌面命令与 HTTP 接口适配
+web-server/                 Rust / Axum HTTP 服务
+Dockerfile、compose.yaml     Docker 镜像和 Compose 部署
   utils/coolapkEmoji.ts      酷安表情映射
 src-tauri/                   Rust / Tauri 桌面端
   src/coolapk/auth.rs        Token V3 兼容签名
@@ -219,19 +220,15 @@ docs/screenshots/            界面预览截图
 
 ## 登录说明
 
-公开浏览功能（查看动态、评论、图文等）无需登录即可使用。若需发帖、评论、点赞、私信等互动操作，可在客户端右上角唤起登录弹窗：
+先使用安装目录 `.env` 中配置的应用访问密码打开网页。公开动态、评论和图文可在未登录酷安账号时浏览；酷安仍可能要求人工验证码。
 
-1. **官方授权登录（推荐）**：
-   - 客户端内置调起酷安官方授权登录页面（`account.coolapk.com`），支持微信扫码与手机短信验证码登录，登录成功后自动同步会话与多账号库。
-2. **手动 Cookie 导入（备用）**：
-   - 若系统未安装完整 WebView2 或官方窗口授权异常，可展开弹窗底部的「备用登录选项」，通过浏览器抓取 Cookie 凭据进行导入。
-   - 详细提取与配置步骤请参阅：👉 **[📖 手动抓取与导入 Cookie 指南](docs/cookie-guide.md)**（包含保留日志、定位主站请求与凭据有效性校验步骤）。
+需要账号功能时，在网页右上角登录弹窗导入有效 Cookie。详细提取步骤见 [手动抓取与导入 Cookie 指南](docs/cookie-guide.md)。原桌面 WebView 自动授权窗口不适用于浏览器。
 
-> ⚠️ **凭据安全提示**：Cookie 包含账号的完整操作权限。客户端仅将其安全持久化在本地应用数据目录中，绝不写入代码仓库或上传任何第三方服务器。请妥善保管，切勿在公开 Issue、日志或聊天截图中泄露真实 Cookie。
+Cookie 保存在部署安装目录 `data/accounts/`，不回传原文给浏览器。Cookie 包含账号操作权限，不能写入代码仓库、公开 Issue、日志或截图；持久化不改变酷安官方有效期。
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。提交前请运行前端构建、Rust 测试，并确保测试数据不包含真实账号、Cookie、设备标识或私信内容。
+反馈与支持见 [GitHub](https://github.com/lcmovie)。提交前请运行前端构建、Rust 测试，并确保测试数据不包含真实账号、Cookie、设备标识或私信内容。
 
 
 ## 许可证

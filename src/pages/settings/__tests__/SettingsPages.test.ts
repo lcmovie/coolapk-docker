@@ -203,18 +203,42 @@ describe('设置页面交互', () => {
     expect(settings.settings.messageEnterBehavior).toBe('newline');
   });
 
-  it('关于页展示版本信息并支持打开链接和检查更新', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ stargazers_count: 1200, forks_count: 12, open_issues_count: 3 }) }));
+  it('关于页展示 Docker 品牌与实际技术栈，社区数据固定为 0 且不请求上游统计', async () => {
+    const fetchStats = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ stargazers_count: 1200, forks_count: 12, open_issues_count: 3 }) });
+    vi.stubGlobal('fetch', fetchStats);
+    const { wrapper } = mountPage(AboutSettingsPage);
+    await flushPromises();
+    expect(wrapper.text()).toContain('酷安docker版');
+    expect(wrapper.findAll('.tech-badge').map((badge) => badge.text())).toEqual(['Vue 3', 'TypeScript', 'Pinia', 'Vite', 'Rust', 'Axum', 'Docker/Compose']);
+    expect(wrapper.findAll('.repo-stat').map((stat) => stat.text())).toEqual(['0', '0', '0']);
+    expect(fetchStats).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('第三方非官方 Docker 客户端');
+    const attribution = wrapper.get('.feedback-guide-group');
+    expect(attribution.get('h4').text()).toBe('对原作者的感谢及本项目修改信息');
+    expect(attribution.text()).toContain('感谢 daimiaopeng');
+    expect(attribution.text()).toContain('持久化保存在 Docker 安装目录');
+    expect(attribution.text()).not.toContain('反馈说明与建议');
+    expect(wrapper.get('.copyright').text()).toContain('MIT License');
+    vi.unstubAllGlobals();
+  });
+
+  it('关于页联系与支持的全部入口打开维护者 GitHub，保留版本与检查更新操作', async () => {
     const eventSpy = vi.spyOn(window, 'dispatchEvent');
     const { wrapper } = mountPage(AboutSettingsPage);
     await flushPromises();
     expect(wrapper.text()).toContain(APP_VERSION);
-    expect(wrapper.text()).toContain('1.2k');
     await wrapper.get('.about-head button').trigger('click');
     expect(eventSpy).toHaveBeenCalled();
-    await wrapper.find('[title="打开项目主页"]').trigger('click');
-    expect(mocks.openUrl).toHaveBeenCalledWith('https://github.com/daimiaopeng/coolapk-desktop', 'system');
-    vi.unstubAllGlobals();
+    const supportButtons = wrapper.findAll('.setting-group')[1].findAll('button');
+    expect(supportButtons).toHaveLength(6);
+    for (const button of supportButtons) {
+      mocks.openUrl.mockClear();
+      await button.trigger('click');
+      expect(mocks.openUrl).toHaveBeenCalledOnce();
+      expect(mocks.openUrl).toHaveBeenCalledWith('https://github.com/lcmovie', 'system');
+    }
+    expect(wrapper.text()).not.toContain('私信反馈');
+    expect(wrapper.text()).not.toContain('daimiaopeng@gmail.com');
   });
 
   it('账号页在没有本地账户时展示空状态', async () => {

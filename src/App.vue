@@ -151,6 +151,7 @@
 import { stateStorage } from './utils/persistentStorage';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { APP_DISPLAY_NAME } from './constants/app';
 import { isTauri, listen } from './utils/runtime';
 import AppShell from './components/layout/AppShell.vue';
 import PublishDialog from './components/overlays/PublishDialog.vue';
@@ -225,7 +226,7 @@ const installPermissionNeeded = ref(false);
 const isWindows = ref(false);
 const isAndroid = ref(false);
 const canInstallInApp = computed(() => isWindows.value || isAndroid.value);
-const appUpdateName = computed(() => isAndroid.value ? '酷安' : '酷安桌面版');
+const appUpdateName = computed(() => APP_DISPLAY_NAME);
 const updatePackageType = ref<'installer' | 'portable'>('installer');
 let unregisterHotkeys: (() => void) | null = null;
 let unregisterSelectionClear: (() => void) | null = null;

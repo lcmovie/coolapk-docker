@@ -9,6 +9,7 @@ data
 backups
 build-logs
 test-results
+.playwright-mcp
 .build-cache
 source-test.tar.gz
 .env
@@ -30,3 +31,4 @@ coolapk_all_decompiled
 docs/screenshots
 Thumbs.db
 .DS_Store
+archives

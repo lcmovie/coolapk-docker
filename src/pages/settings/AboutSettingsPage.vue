@@ -1,6 +1,6 @@
 <template>
   <div class="settings-section">
-    <h3 class="section-title">{{ nativeRuntime ? '关于酷安桌面版' : '关于酷安网页版' }}</h3>
+    <h3 class="section-title">关于{{ APP_DISPLAY_NAME }}</h3>
 
     <!-- 应用信息 -->
     <div class="setting-group">
@@ -8,12 +8,12 @@
         <img src="../../assets/coolapk-logo-rounded.png" alt="酷安 Logo" class="about-logo" />
         <div class="about-info">
           <div class="about-name-row">
-            <span class="about-name">{{ nativeRuntime ? '酷安桌面版' : '酷安网页版' }}</span>
+            <span class="about-name">{{ APP_DISPLAY_NAME }}</span>
             <span class="about-version">v{{ appVersion }}</span>
             <span class="about-channel">{{ channelLabel }}</span>
           </div>
           <p class="about-desc">
-            基于 Tauri 2、Vue 3 与 Rust 构建的非官方酷安桌面客户端，数据来自酷安公开接口。
+            基于 Vue 3 与 Rust 构建的第三方非官方酷安 Docker 客户端，使用原生网页呈现内容，支持 Docker / Compose 部署。
           </p>
         </div>
         <AppButton variant="secondary" size="sm" icon="fas fa-sync-alt" @click="checkUpdate">
@@ -21,32 +21,32 @@
         </AppButton>
       </div>
 
-      <div class="setting-row">
+      <div class="setting-row tech-row">
         <div class="row-info">
           <span class="row-label">技术栈</span>
-          <span class="row-sub">Tauri 2 · Vue 3 · TypeScript · Rust · Pinia</span>
+          <span class="row-sub">{{ techStack.join(' · ') }}</span>
         </div>
         <div class="tech-badges">
           <span v-for="t in techStack" :key="t" class="tech-badge">{{ t }}</span>
         </div>
       </div>
 
-      <div v-if="repoStats" class="setting-row">
+      <div class="setting-row">
         <div class="row-info">
           <span class="row-label">社区数据</span>
-          <span class="row-sub">数据来自 GitHub API</span>
+          <span class="row-sub">Stars · Forks · Issues</span>
         </div>
         <div class="repo-stats">
-          <span class="repo-stat"><i class="fas fa-star"></i> {{ formatCount(repoStats.stars) }}</span>
-          <span class="repo-stat"><i class="fas fa-code-branch"></i> {{ formatCount(repoStats.forks) }}</span>
-          <span class="repo-stat"><i class="fas fa-exclamation-circle"></i> {{ formatCount(repoStats.issues) }}</span>
+          <span class="repo-stat" title="Stars"><i class="fas fa-star"></i> 0</span>
+          <span class="repo-stat" title="Forks"><i class="fas fa-code-branch"></i> 0</span>
+          <span class="repo-stat" title="Issues"><i class="fas fa-exclamation-circle"></i> 0</span>
         </div>
       </div>
 
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">开源协议</span>
-          <span class="row-sub">MIT License · 第三方非官方客户端</span>
+          <span class="row-sub">MIT License · 第三方非官方 Docker 客户端</span>
         </div>
         <span class="license-badge">MIT</span>
       </div>
@@ -57,57 +57,57 @@
       <h4 class="group-title">联系与支持</h4>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">一键私信反馈</span>
-          <span class="row-sub">直接向作者（oxygen的喵）私信反馈 Bug 或建议</span>
+          <span class="row-label">一键反馈</span>
+          <span class="row-sub">通过维护者的 GitHub 主页反馈 Bug 或建议</span>
         </div>
         <AppButton variant="primary" size="sm" icon="fas fa-comment-dots" @click="handleFeedback">
-          私信反馈
+          GitHub 反馈
         </AppButton>
       </div>
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">项目主页</span>
-          <span class="row-sub">GitHub 仓库 · 源码与 Release</span>
+          <span class="row-sub">维护者 GitHub 主页 · 项目与源码</span>
         </div>
-        <AppIconButton icon="fas fa-arrow-up-right-from-square" size="sm" title="打开项目主页" @click="open('https://github.com/daimiaopeng/coolapk-desktop')" />
+        <AppIconButton icon="fas fa-arrow-up-right-from-square" size="sm" title="打开项目主页" @click="open(SUPPORT_GITHUB_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">GitHub 反馈</span>
-          <span class="row-sub">提交 Issue 或功能建议</span>
+          <span class="row-sub">查看维护者项目，提出问题或功能建议</span>
         </div>
-        <AppIconButton icon="fas fa-bug" size="sm" title="打开反馈页面" @click="open('https://github.com/daimiaopeng/coolapk-desktop/issues')" />
+        <AppIconButton icon="fas fa-bug" size="sm" title="打开反馈页面" @click="open(SUPPORT_GITHUB_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">联系作者</span>
-          <span class="row-sub">daimiaopeng · GitHub</span>
+          <span class="row-label">联系维护者</span>
+          <span class="row-sub">lcmovie · GitHub</span>
         </div>
-        <AppIconButton icon="fas fa-user" size="sm" title="打开作者主页" @click="open('https://github.com/daimiaopeng')" />
+        <AppIconButton icon="fas fa-user" size="sm" title="打开维护者主页" @click="open(SUPPORT_GITHUB_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">邮箱</span>
-          <span class="row-sub">daimiaopeng@gmail.com</span>
+          <span class="row-label">部署支持</span>
+          <span class="row-sub">通过 GitHub 联系，附上部署方式与报错信息</span>
         </div>
-        <AppIconButton icon="fas fa-envelope" size="sm" title="发送邮件" @click="open('mailto:daimiaopeng@gmail.com')" />
+        <AppIconButton icon="fab fa-github" size="sm" title="打开支持主页" @click="open(SUPPORT_GITHUB_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">酷安主页</span>
-          <span class="row-sub">oxygen的喵 · 酷友交流</span>
+          <span class="row-label">GitHub 主页</span>
+          <span class="row-sub">{{ SUPPORT_GITHUB_URL }}</span>
         </div>
-        <AppIconButton icon="fas fa-smile" size="sm" title="打开酷安主页" @click="open('https://www.coolapk.com/u/oxygen%E7%9A%84%E5%96%B5')" />
+        <AppIconButton icon="fab fa-github" size="sm" title="打开 GitHub 主页" @click="open(SUPPORT_GITHUB_URL)" />
       </div>
     </div>
 
-    <!-- 反馈说明指引 -->
+    <!-- 原作者感谢与本版本改造说明 -->
     <div class="setting-group feedback-guide-group">
-      <h4 class="group-title"><i class="fas fa-info-circle"></i> 反馈说明与建议</h4>
+      <h4 class="group-title"><i class="fas fa-info-circle"></i> 对原作者的感谢及本项目修改信息</h4>
       <div class="guide-content">
-        <p class="guide-item"><strong>📌 支持反馈内容：</strong>功能异常/报错（Bug）、界面样式显示问题、交互体验优化建议、希望新增的专区或功能。</p>
-        <p class="guide-item"><strong>💡 高效反馈技巧：</strong>建议附带<strong>具体操作步骤</strong>、<strong>复现条件</strong>或<strong>截图/报错信息</strong>，以便开发者快速定位并排查问题。</p>
-        <p class="guide-item"><strong>⚡ 自动附加信息：</strong>通过一键反馈跳转时，会自动预填当前客户端版本号与系统类型，无需手动输入。</p>
+        <p class="guide-item"><strong>感谢原作者：</strong>感谢 daimiaopeng 提供 coolapk-desktop 原项目。本版本基于原项目改造，保留 MIT 开源协议与原作者署名。</p>
+        <p class="guide-item"><strong>原生网页呈现：</strong>将原桌面版内容以原生网页呈现，沿用原界面布局与尺寸，并支持不同分辨率下的内容居中显示。</p>
+        <p class="guide-item"><strong>Docker 与持久化：</strong>支持 Docker / Compose 部署；账号 Cookie 与相关配置持久化保存在 Docker 安装目录，重启后可继续使用。</p>
       </div>
     </div>
 
@@ -116,38 +116,24 @@
 </template>
 
 <script setup lang="ts">
-import { isTauri } from '../../utils/runtime';
-import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { APP_VERSION } from '../../constants/version';
+import { APP_DISPLAY_NAME, SUPPORT_GITHUB_URL } from '../../constants/app';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
-import { useAuthStore } from '../../stores/auth';
 import AppButton from '../../components/common/AppButton.vue';
 import AppIconButton from '../../components/common/AppIconButton.vue';
-import { openFeedbackMessage } from '../../utils/feedback';
+import { openFeedbackPage } from '../../utils/feedback';
 
-const router = useRouter();
-const nativeRuntime = isTauri();
-const authStore = useAuthStore();
 const appVersion = APP_VERSION;
 const settingsStore = useSettingsStore();
 
 function handleFeedback() {
-  openFeedbackMessage(router, authStore);
+  void openFeedbackPage();
 }
 
 const channelLabel = settingsStore.settings.updateChannel === 'beta' ? '测试版渠道' : '稳定版';
 
-const techStack = ['Tauri 2', 'Vue 3', 'TypeScript', 'Rust', 'Pinia'];
-
-type RepoStats = { stars: number; forks: number; issues: number };
-const repoStats = ref<RepoStats | null>(null);
-
-function formatCount(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
+const techStack = ['Vue 3', 'TypeScript', 'Pinia', 'Vite', 'Rust', 'Axum', 'Docker/Compose'];
 
 function open(url: string) {
   void CoolapkTauriAPI.openUrl(url, 'system');
@@ -157,24 +143,6 @@ function checkUpdate() {
   window.dispatchEvent(new Event('check-for-update'));
 }
 
-onMounted(() => {
-  fetch('https://api.github.com/repos/daimiaopeng/coolapk-desktop', {
-    headers: { Accept: 'application/vnd.github.v3+json' },
-  })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data: any) => {
-      if (data && typeof data.stargazers_count === 'number') {
-        repoStats.value = {
-          stars: data.stargazers_count,
-          forks: data.forks_count ?? 0,
-          issues: data.open_issues_count ?? 0,
-        };
-      }
-    })
-    .catch(() => {
-      // 网络不可用时隐藏社区数据行
-    });
-});
 </script>
 
 <style scoped>
@@ -298,7 +266,18 @@ onMounted(() => {
 }
 
 /* 技术栈与社区数据 */
+.tech-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.tech-row .row-info {
+  flex: 1 1 220px;
+}
+
 .tech-badges {
+  flex: 1 1 260px;
+  min-width: 0;
   display: flex;
   gap: var(--space-1);
   flex-wrap: wrap;

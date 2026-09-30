@@ -1,6 +1,8 @@
-import type { Router } from 'vue-router';
 import { APP_VERSION } from '../constants/version';
+import { APP_DISPLAY_NAME, SUPPORT_GITHUB_URL } from '../constants/app';
+import { CoolapkTauriAPI } from '../api/coolapk';
 
+// 仅用于兼容旧私信链接中的原作者昵称，不再作为反馈收件人。
 export const DEVELOPER_UID = '1451266';
 export const DEVELOPER_USERNAME = 'oxygen的喵';
 
@@ -17,32 +19,13 @@ export function getFeedbackTemplate(): string {
     }
   }
 
-  return `【酷安客户端问题反馈】
+  return `【${APP_DISPLAY_NAME}问题反馈】
 - 客户端版本：v${APP_VERSION}
 - 操作系统：${osName}
 - 问题描述：
 - 复现步骤：`;
 }
 
-export function openFeedbackMessage(
-  router: Router,
-  authStore?: { isLoggedIn: boolean; openLoginModal?: () => void },
-) {
-  if (authStore && !authStore.isLoggedIn) {
-    if (typeof authStore.openLoginModal === 'function') {
-      authStore.openLoginModal();
-    }
-    return;
-  }
-
-  const initialText = getFeedbackTemplate();
-  void router.push({
-    path: '/messages',
-    query: {
-      uid: DEVELOPER_UID,
-      username: DEVELOPER_USERNAME,
-      initialText,
-      open: String(Date.now()),
-    },
-  });
+export function openFeedbackPage() {
+  return CoolapkTauriAPI.openUrl(SUPPORT_GITHUB_URL, 'system');
 }

@@ -41,6 +41,7 @@ import { getOriginalImageUrl } from '../../utils/image';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 import { refreshPageTabGeneration } from '../../utils/pageTabs';
 import { useAndroidBackButton } from '../../utils/androidBackButton';
+import { getOfficialCoolapkPageUrl } from '../../utils/currentPageUrl';
 
 type ContextKind = 'page' | 'selection' | 'link' | 'image' | 'comment' | 'feed' | 'message' | 'chat-message';
 
@@ -387,6 +388,7 @@ function createItems(state: ContextState): MenuItem[] {
   const density = settingsStore.settings.density;
   const nextDensity = density === 'compact' ? 'comfortable' : density === 'comfortable' ? 'standard' : 'compact';
   const fontSize = settingsStore.settings.fontSize || 15;
+  const pageUrl = getOfficialCoolapkPageUrl(route);
   return [
     item('back', '返回', 'fas fa-arrow-left', () => router.back(), { shortcut: formatShortcut('Alt+←') }),
     item('forward', '前进', 'fas fa-arrow-right', () => router.go(1), { shortcut: formatShortcut('Alt+→') }),
@@ -399,8 +401,10 @@ function createItems(state: ContextState): MenuItem[] {
     item('font-smaller', '减小字体', 'fas fa-font', () => adjustFontSize(-1)),
     item('font-larger', '增大字体', 'fas fa-text-height', () => adjustFontSize(1)),
     separator('page-separator-2'),
-    item('copy-page-url', '复制当前页面地址', 'fas fa-link', () => copyText(window.location.href)),
-    item('open-page-system', '使用系统浏览器打开当前页', 'fas fa-external-link-alt', () => CoolapkTauriAPI.openUrl(window.location.href, 'system')),
+    ...(pageUrl ? [
+      item('copy-page-url', '复制当前页面地址', 'fas fa-link', () => copyText(pageUrl)),
+      item('open-page-system', '使用系统浏览器打开当前页', 'fas fa-external-link-alt', () => CoolapkTauriAPI.openUrl(pageUrl, 'system')),
+    ] : []),
     item('open-settings', '打开设置', 'fas fa-cog', () => router.push('/settings')),
   ];
 }

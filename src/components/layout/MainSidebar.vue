@@ -126,23 +126,23 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
 import { useNotificationStore } from '../../stores/notifications';
 import { useDownloadStore } from '../../stores/downloads';
 import { APP_VERSION } from '../../constants/version';
+import { APP_DISPLAY_NAME } from '../../constants/app';
 import { triggerSidebarTransition } from '../../utils/routeTransition';
-import { openFeedbackMessage } from '../../utils/feedback';
+import { openFeedbackPage } from '../../utils/feedback';
 
 const route = useRoute();
-const router = useRouter();
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const downloadStore = useDownloadStore();
 const appVersion = APP_VERSION;
-const appDisplayName = computed(() => /android|iphone|ipad|ipod/i.test(navigator.userAgent) ? '酷安' : '酷安桌面版');
+const appDisplayName = APP_DISPLAY_NAME;
 
 const props = withDefaults(defineProps<{ mobileOpen?: boolean; mobileWindowControls?: boolean }>(), { mobileOpen: false, mobileWindowControls: false });
 const emit = defineEmits<{ closeMobile: [] }>();
@@ -155,7 +155,7 @@ function handleNavSelection() {
 }
 
 function handleFeedback() {
-  openFeedbackMessage(router, authStore);
+  void openFeedbackPage();
 }
 
 function handleNavClick(event: MouseEvent) {
