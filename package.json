@@ -1,7 +1,7 @@
 {
   "name": "coolapk-docker",
   "private": true,
-  "version": "1.27.6",
+  "version": "1.29.0",
   "description": "基于 Vue 3、Rust / Axum 与 Docker Compose 的第三方酷安 Docker 客户端",
   "author": "daimiaopeng",
   "license": "MIT",
