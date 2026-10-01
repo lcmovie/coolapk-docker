@@ -1,6 +1,7 @@
 ﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { isTauri as nativeIsTauri } from '@tauri-apps/api/core';
 
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn() },
@@ -66,6 +67,7 @@ describe('MessagesPage 粘贴图片发送功能', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(nativeIsTauri).mockReturnValue(true);
     const pinia = createPinia();
     setActivePinia(pinia);
 
@@ -105,6 +107,7 @@ describe('MessagesPage 粘贴图片发送功能', () => {
       wrapper.unmount();
       wrapper = null;
     }
+    vi.useRealTimers();
   });
 
   async function mountMessagesPage() {
@@ -132,6 +135,45 @@ describe('MessagesPage 粘贴图片发送功能', () => {
     }
     return wrapper;
   }
+
+  it('网页慢会话读取超过15秒仍等待，并阻止并发刷新已有缓存', async () => {
+    vi.mocked(nativeIsTauri).mockReturnValue(false);
+    const w = await mountMessagesPage();
+    vi.useFakeTimers();
+    mocks.listMessages.mockImplementation(() => new Promise(resolve => {
+      window.setTimeout(() => resolve({ data: [{
+        ukey: '10001_20003', id: '10001_20003', messageUid: 20003,
+        messageUsername: '慢网络测试', message: '', dateline: 1700000001,
+      }] }), 20_000);
+    }));
+    mocks.listMessages.mockClear();
+    let finished = false;
+    const request = w.vm.$.setupState.loadSessions().then(() => { finished = true; });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(finished).toBe(false);
+    expect(w.vm.$.setupState.sessionsError).toBe('');
+    await w.vm.$.setupState.loadSessions();
+    expect(mocks.listMessages).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await request;
+    await flushPromises();
+    expect(finished).toBe(true);
+    expect(w.text()).toContain('慢网络测试');
+    expect(w.vm.$.setupState.sessionsError).toBe('');
+  });
+
+  it('桌面会话读取保留15秒超时反馈', async () => {
+    const w = await mountMessagesPage();
+    vi.useFakeTimers();
+    mocks.listMessages.mockImplementation(() => new Promise(() => {}));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const request = w.vm.$.setupState.loadSessions();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await request;
+    expect(w.vm.$.setupState.sessionsError).toContain('会话列表请求超时');
+    expect(w.vm.$.setupState.loadingSessions).toBe(false);
+    errorLog.mockRestore();
+  });
 
   it('手机上可从聊天返回会话列表，同时保留当前会话', async () => {
     const w = await mountMessagesPage();

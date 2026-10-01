@@ -699,7 +699,7 @@ export async function generateFeedShareImage(feed: FeedItem, images: FeedImageIn
     context.fillStyle = '#10b981';
     context.font = 'bold 22px system-ui, "Microsoft YaHei", sans-serif';
     context.textAlign = 'left';
-    context.fillText('来自酷安跨平台桌面版', contentX, footerTop + 24);
+    context.fillText('来自酷安docker版', contentX, footerTop + 24);
 
     context.fillStyle = '#6b7280';
     context.font = '18px system-ui, "Microsoft YaHei", sans-serif';
@@ -712,7 +712,7 @@ export async function generateFeedShareImage(feed: FeedItem, images: FeedImageIn
     context.fillStyle = '#10b981';
     context.font = 'bold 20px system-ui, "Microsoft YaHei", sans-serif';
     context.textAlign = 'left';
-    context.fillText('来自酷安跨平台桌面版', contentX, footerTop + 30);
+    context.fillText('来自酷安docker版', contentX, footerTop + 30);
 
     context.fillStyle = '#9ca3af';
     context.font = '17px system-ui, "Microsoft YaHei", sans-serif';

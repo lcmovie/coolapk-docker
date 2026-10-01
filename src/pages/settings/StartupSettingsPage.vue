@@ -1,7 +1,7 @@
 <template>
   <div class="settings-section">
     <h3 class="section-title">启动与行为设置</h3>
-    <p v-if="!nativeRuntime" class="tray-tip">网页版由 Docker Compose 管理启动与更新。浏览器窗口由当前设备管理。</p>
+    <p v-if="!nativeRuntime" class="tray-tip">Docker版由 Docker Compose 管理启动与更新。浏览器窗口由当前设备管理。</p>
 
     <div class="setting-group">
       <h4 class="group-title">启动</h4>

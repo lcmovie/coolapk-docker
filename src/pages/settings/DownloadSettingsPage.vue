@@ -91,7 +91,7 @@
         <div class="row-info">
           <span class="row-label">图片缓存目录</span>
           <span class="row-sub cache-path">{{ cacheDirectoryText }}</span>
-          <span class="row-sub">{{ nativeRuntime ? '自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变' : '缓存持久保存在 NAS 安装目录的 data/cache 下' }}</span>
+          <span class="row-sub">{{ nativeRuntime ? '自定义目录中会创建应用专用的图片缓存子目录；WebView 系统缓存位置不变' : '缓存持久保存在 Docker 安装目录的 data/cache 下' }}</span>
         </div>
         <div class="row-actions">
           <AppButton variant="ghost" size="sm" @click="openCacheDir">打开目录</AppButton>

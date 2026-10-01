@@ -1,6 +1,6 @@
 <template>
   <div class="files-page custom-scrollbar">
-    <div class="files-heading"><h2>NAS 保存的文件</h2><AppButton variant="secondary" size="sm" :loading="loading" @click="loadFiles">刷新</AppButton></div>
+    <div class="files-heading"><h2>Docker 保存的文件</h2><AppButton variant="secondary" size="sm" :loading="loading" @click="loadFiles">刷新</AppButton></div>
     <p>下载与导出文件保存在安装目录的 data 下。点击文件可下载到当前设备。</p>
     <p v-if="error" class="files-error" role="alert">{{ error }}</p>
     <p v-else-if="!files.length && !loading">暂无保存的下载或导出文件。</p>

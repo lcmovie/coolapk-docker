@@ -243,7 +243,7 @@ function formatBytes(bytes: number) {
 
 async function checkForUpdate(manual = false) {
   if (!isTauri()) {
-    if (manual) window.alert('网页版请通过 Docker Compose 更新镜像，账号和设置保存在安装目录的 data 中。');
+    if (manual) window.alert('Docker版请通过 Docker Compose 更新镜像，账号和设置保存在安装目录的 data 中。');
     return;
   }
   logDiagnostic('info', 'update', 'check_started', `manual=${manual}`);

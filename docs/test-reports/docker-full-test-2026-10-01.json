@@ -1,0 +1,717 @@
+{
+  "schemaVersion": 1,
+  "project": "酷安docker版",
+  "reportType": "completed_test_record",
+  "recordedAtUtc": "2026-10-01T13:34:35.593736+00:00",
+  "testDates": [
+    "2026-09-30",
+    "2026-10-01"
+  ],
+  "version": "1.27.6",
+  "completion": "completed_with_explicit_restrictions_and_unexecuted_probes",
+  "environment": {
+    "sourceDirectory": "D:\\dev\\coolapk",
+    "host": "203.0.113.10",
+    "architecture": "x86_64",
+    "os": "Ubuntu 24.04",
+    "installDirectory": "/opt/coolapk-docker",
+    "hostPort": 18966,
+    "containerPort": 8080,
+    "publicUrl": "https://coolapk.example.com:88/",
+    "browserBundle": "/assets/index-BtzXisER.js",
+    "imageId": "sha256:fca8ec4a213de9366a02c129d30be87704d970b5f413818014ccdb524666b87d",
+    "sourceArchiveSha256": "66e5afc1043ffd4d7a1ae29e1af641c9d56d66d2a2a04bda11c47b817bbaf17b",
+    "sourceFiles": 589,
+    "builtBaseCommit": "db8f3dfdcb4f3b7e8aa9a1a9e39ff2aee9be5e06",
+    "frontendSourceDiffSha256": "2d61141d0dcb6c8fd1462a9d456b721e49b540a88510da92091f982fb2725414",
+    "allTrackedBuildDiffSha256": "3b63e58d87e9b4a958a0db9f1fbd5fa98f62160a18454e1b0496f166756144f9",
+    "builtWorkingTreeSourceFingerprintSha256": "e6e9e387b8064e1e330789ff64fe9d3811fd7fd789c7d2196122e8f69cb127b4",
+    "afterBuildChanges": [
+      "Documentation and test report metadata only"
+    ],
+    "transport": "Browser to Lucky HTTPS; existing Lucky to cloud HTTP:18966"
+  },
+  "fixes": [
+    {
+      "id": "BUG-001",
+      "severity": "high",
+      "symptom": "Old UI reported timeout after successful creation; isolated old retry policy produced three overlapping attempts.",
+      "cause": "15s wrapper did not abort underlying mutation and enabled generic retries.",
+      "resolution": "Mutations and unknown commands execute once; safe read whitelist; web90s; propagated AbortSignal; no overlap with an unsettled old attempt; unknown-result error guidance.",
+      "files": [
+        "src/utils/requestCenter.ts",
+        "src/utils/runtime.ts",
+        "src/api/coolapk.ts"
+      ],
+      "tests": [
+        "src/api/__tests__/webRequestSafety.test.ts",
+        "src/utils/__tests__/requestCenter.test.ts"
+      ],
+      "regression": "Final deployed single UI click: one create_feed resource request, one official marker post, deleted afterward."
+    },
+    {
+      "id": "BUG-002",
+      "severity": "medium",
+      "symptom": "Messages own15/10s timeout ended web read early and cached refresh could overlap.",
+      "resolution": "Web relies on HTTP deadline; separate session in-flight guard; native timeouts retained.",
+      "files": [
+        "src/pages/MessagesPage.vue"
+      ],
+      "tests": [
+        "src/pages/__tests__/MessagesPage.test.ts"
+      ],
+      "regression": "Web delayed read beyond15s and refresh guard pass; actual final Messages19sessions."
+    },
+    {
+      "id": "BUG-003",
+      "severity": "low",
+      "symptom": "Share PNG footer and cloud storage messages retained desktop/NAS wording.",
+      "resolution": "Docker branding and Docker installation directory wording.",
+      "files": [
+        "src/utils/feedShareImage.ts",
+        "src/components/overlays/WebAccessGate.vue",
+        "src/components/overlays/LoginModal.vue",
+        "src/pages/FilesPage.vue"
+      ],
+      "regression": "Final About branding/stack/statistics, source scan and share evidence."
+    },
+    {
+      "id": "BUILD-001",
+      "severity": "medium",
+      "symptom": "Legacy deployment archives could enter a future main-directory build context.",
+      "resolution": "Exclude *.tar.gz, *.tar, *.dockerbuild; relocate confirmed legacy remote archives into private archive directory.",
+      "files": [
+        ".dockerignore"
+      ],
+      "regression": "Final build used secret-excluding source archive; later context-only change requires no runtime rebuild."
+    },
+    {
+      "id": "BUG-004",
+      "severity": "medium",
+      "symptom": "Explicit attached same-origin absolute and Blob/data download anchors intercepted by link handlers.",
+      "resolution": "Share a browser download decision before both production click handlers; allow owned downloads and preserve external link, unsafe scheme and Tauri behavior.",
+      "files": [
+        "src/appBootstrap.ts",
+        "src/utils/anchorClick.ts"
+      ],
+      "tests": [
+        "src/utils/__tests__/anchorClick.test.ts"
+      ],
+      "regression": "54 targeted DOM-event checks,716full tests and actual final4 downloads. Relative FilesPage and detached diagnostic downloadText anchors already worked; tool download event failures do not prove their failure."
+    }
+  ],
+  "results": [
+    {
+      "id": "AUTO-001",
+      "status": "passed",
+      "description": "Final typecheck",
+      "evidence": [
+        "frontend/after-download-fix/typecheck.log"
+      ],
+      "command": "npm run typecheck",
+      "exit_code": 0,
+      "duration_seconds": 26.066,
+      "log": "typecheck.log"
+    },
+    {
+      "id": "AUTO-002",
+      "status": "passed",
+      "description": "Final complete frontend tests",
+      "evidence": [
+        "frontend/after-download-fix/unit-tests.log"
+      ],
+      "command": "npm test -- --maxWorkers=2",
+      "exit_code": 0,
+      "duration_seconds": 205.559,
+      "files_passed": 114,
+      "tests_passed": 716,
+      "tests_failed": 0,
+      "tests_skipped": 0,
+      "log": "unit-tests.log"
+    },
+    {
+      "id": "AUTO-003",
+      "status": "passed",
+      "description": "Final4 full source Docker production frontend and backend build",
+      "evidence": [
+        "docker/final4-build.log"
+      ],
+      "previousLocalFinal3Build": "build/final-production-build-result.json"
+    },
+    {
+      "id": "AUTO-004",
+      "status": "passed",
+      "description": "Targeted safety and message regressions:100tests, subset of716",
+      "evidence": [
+        "backend/request-safety/final-summary.json"
+      ],
+      "tests": 100,
+      "additionalToFullSuite": false
+    },
+    {
+      "id": "AUTO-005",
+      "status": "passed",
+      "description": "Targeted native download routing:54tests, subset of716",
+      "evidence": [
+        "backend/attachment-download/summary.json"
+      ],
+      "tests": 54,
+      "additionalToFullSuite": false
+    },
+    {
+      "id": "RUST-001",
+      "status": "passed",
+      "description": "Final4 Docker source Rust suite",
+      "evidence": [
+        "docker/final4-build.log"
+      ],
+      "passed": 62,
+      "failed": 0,
+      "ignored": 21
+    },
+    {
+      "id": "RUST-002",
+      "status": "passed",
+      "description": "Rust release cargo check",
+      "evidence": [
+        "docker/cargo-check.log"
+      ],
+      "command": "cargo check --manifest-path web-server/Cargo.toml --locked --release --jobs 1",
+      "exitCode": 0,
+      "existingWarnings": 8
+    },
+    {
+      "id": "API-001",
+      "status": "passed",
+      "description": "Initial isolated synthetic API checks; unchanged Rust backend",
+      "evidence": [
+        "docker/synthetic-api.json"
+      ],
+      "checks": 63,
+      "phase": "initial-isolated-image"
+    },
+    {
+      "id": "DATA-001",
+      "status": "passed",
+      "description": "Initial isolated recreate and backup restore; unchanged backend",
+      "evidence": [
+        "docker/lifecycle.json"
+      ],
+      "checks": 27,
+      "restoredFiles": 6,
+      "phase": "initial-isolated-image"
+    },
+    {
+      "id": "MEDIA-001",
+      "status": "passed",
+      "description": "Actual public PNG, repeat bytes,Range206 and cache reuse",
+      "evidence": [
+        "docker/real-media.json"
+      ],
+      "checks": 6,
+      "pngBytes": 28435,
+      "rangeBytes": 32,
+      "phase": "initial-isolated-image"
+    },
+    {
+      "id": "LIMIT-001",
+      "status": "passed",
+      "description": "33MiB JSON rejected before store write",
+      "evidence": [
+        "docker/media-and-limits.json"
+      ],
+      "http": 413
+    },
+    {
+      "id": "DEPLOY-001",
+      "status": "passed",
+      "description": "Main final4 image upgrade and existing state preservation",
+      "evidence": [
+        "docker/final4-main-upgrade.json"
+      ],
+      "checksPassed": 16,
+      "criticalFileHashesUnchanged": 4,
+      "dataRestorePerformed": false
+    },
+    {
+      "id": "UI-AUTH-001",
+      "status": "passed",
+      "description": "Isolated wrong/correct password, invalid synthetic Cookie and refresh session",
+      "evidence": [
+        "browser/isolated-ui-auth.json"
+      ]
+    },
+    {
+      "id": "UI-SESSION-001",
+      "status": "passed",
+      "description": "Existing main access and official account restored after upgrade",
+      "evidence": [
+        "browser/final-ui-publish.json"
+      ]
+    },
+    {
+      "id": "UI-PUBLISH-001",
+      "status": "passed",
+      "description": "Real UI publish and cleanup in final3; subsequent final4 changes only link handlers",
+      "evidence": [
+        "browser/final-ui-publish.json",
+        "account/real-final-ui-inspect.json",
+        "account/real-final-ui-cleanup.json"
+      ],
+      "phase": "final3",
+      "marker": "酷安docker版发布回归测试 20261001-1050",
+      "feedId": "74095526",
+      "singleSubmitClick": true,
+      "resourceRequestCount": 1,
+      "resourceDurationMs": 478.89999985694885,
+      "publishModalClosed": true,
+      "bundle": "/assets/index-ib3wPAtc.js",
+      "officialReadbackCount": 1,
+      "officialDetailMarkerMatches": true,
+      "previousSessionRestored": true,
+      "coolapkLoggedInRestored": true,
+      "cleanupPending": false,
+      "markerVisible": true,
+      "unknownResultVisible": false,
+      "cleanupDetailHttp": 400,
+      "remainingMarkerCount": 0
+    },
+    {
+      "id": "UI-NAV-001",
+      "status": "passed",
+      "description": "Five previously failing final routes complete without error",
+      "evidence": [
+        "frontend/after-timeout-fix/browser-nav.json"
+      ],
+      "outcomes": [
+        {
+          "page": "搜索",
+          "status": "passed",
+          "cards": 20,
+          "images": 85
+        },
+        {
+          "page": "历史",
+          "status": "passed",
+          "items": 17,
+          "groups": 8,
+          "images": 59
+        },
+        {
+          "page": "酷图",
+          "status": "passed",
+          "cards": 13,
+          "images": 18
+        },
+        {
+          "page": "通知",
+          "status": "passed",
+          "items": 2,
+          "images": 4
+        },
+        {
+          "page": "消息",
+          "status": "passed",
+          "sessions": 19,
+          "images": 23
+        }
+      ],
+      "manualRetries": 0,
+      "timingNote": "elapsed_seconds是用户动作至该次状态观察的时间，包含观察间隔，不是API精确响应耗时。"
+    },
+    {
+      "id": "UI-LINK-001",
+      "status": "passed",
+      "description": "Root clicked visible History link and verified route",
+      "evidence": [
+        "browser/final-history-link.json"
+      ]
+    },
+    {
+      "id": "UI-LAYOUT-001",
+      "status": "passed",
+      "description": "Seven viewport widths including390px and3840px; no horizontal overflow",
+      "evidence": [
+        "browser/layout.json"
+      ],
+      "viewports": [
+        {
+          "app_left": 0,
+          "app_width": 1366,
+          "height": 768,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 1366
+        },
+        {
+          "app_left": 0,
+          "app_width": 1440,
+          "height": 900,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 1440
+        },
+        {
+          "app_left": 240,
+          "app_width": 1440,
+          "height": 1080,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 1920
+        },
+        {
+          "app_left": 560,
+          "app_width": 1440,
+          "height": 1440,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 2560
+        },
+        {
+          "app_left": 1200,
+          "app_width": 1440,
+          "height": 2160,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 3840
+        },
+        {
+          "app_left": 0,
+          "app_width": 720,
+          "height": 900,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 720
+        },
+        {
+          "app_left": 0,
+          "app_width": 390,
+          "height": 844,
+          "overflow": false,
+          "tech_overflow": false,
+          "title": "关于酷安docker版",
+          "width": 390
+        }
+      ],
+      "pixelIdenticalToNativeDesktopClaimed": false
+    },
+    {
+      "id": "UI-URL-001",
+      "status": "passed",
+      "description": "Real clipboard exact official feed URL and real official opened tab; hide settings actions",
+      "evidence": [
+        "browser/clipboard-verification.json",
+        "browser/official-open.json"
+      ]
+    },
+    {
+      "id": "UI-ABOUT-001",
+      "status": "passed",
+      "description": "Actual Docker branding,7stack badges,zero stats,GitHub support and thanks",
+      "evidence": [
+        "browser/final-main-about.png",
+        "browser/final-about-isolated.json"
+      ]
+    },
+    {
+      "id": "ACCOUNT-001",
+      "status": "passed",
+      "description": "Earlier official login/read and temporary write flows",
+      "evidence": [
+        "account/account-summary.json"
+      ],
+      "businessFlows": 10,
+      "mutationActions": 18,
+      "createdObjects": 4,
+      "cleanedObjects": 4,
+      "phase": "before-final-UI-publish"
+    },
+    {
+      "id": "ACCOUNT-002",
+      "status": "restricted",
+      "description": "Self private message rejected by official service; no new self chat",
+      "evidence": [
+        "account/real-self-message.json"
+      ],
+      "http": 400,
+      "successfulDelivery": false
+    },
+    {
+      "id": "MEDIA-002",
+      "status": "restricted",
+      "description": "Observed Live Photo video not decoded; proxy/upstreamHEAD/Range all403 with no media bytes",
+      "evidence": [
+        "browser/live-photo-playback.json",
+        "docker/live-photo-diagnosis.json"
+      ],
+      "readyState": 0,
+      "upstreamHttp": 403,
+      "causeEstablished": false
+    },
+    {
+      "id": "UPSTREAM-001",
+      "status": "restricted",
+      "description": "Guest public detail probe rejected with official captcha requirement",
+      "evidence": [
+        "docker/public-smoke.log"
+      ],
+      "captchaAutomaticallySolved": false
+    },
+    {
+      "id": "RUST-IGNORED-001",
+      "status": "not_run",
+      "description": "21 developer probes excluded from automatic suite",
+      "evidence": [
+        "backend/ignored-probe-review.json"
+      ],
+      "count": 21,
+      "anonymousReads": 16,
+      "realAccountRead": 1,
+      "mixedOauthProbe": 1,
+      "writeCapabilityProbes": 3,
+      "assertionlessProbes": 13
+    },
+    {
+      "id": "STATIC-001",
+      "status": "passed",
+      "description": "267 native command implementations statically mapped; not267live business successes",
+      "evidence": [
+        "backend/command-coverage.json"
+      ],
+      "commands": 267,
+      "claimsLiveBusinessSuccess": false
+    }
+  ],
+  "cleanup": {
+    "newRealAccountObjectsCreated": 5,
+    "newRealAccountObjectsCleaned": 5,
+    "verifiedMutationActions": 20,
+    "previousLikesAndFavoritesRestored": true,
+    "existingContentOrChatsDeleted": false,
+    "notificationReadCountMayChange": true,
+    "localTunnelStopped": true,
+    "localSyntheticPasswordAndSignedMediaUrlDeleted": true,
+    "NASRecreated": false,
+    "desktopTestDownloadsDeleted": 0,
+    "desktopCleanupRejectedByAutoReview": true,
+    "remoteBuilderAndIsolatedRetainedForUserRequestedUpstreamUpgrade": true
+  },
+  "actualFinal4Downloads": {
+    "phase": "final4-after-download-guard-fix",
+    "timestamp": "2026-10-01T13:29:39.881Z",
+    "imagePrefix": "fca8ec4a",
+    "bundle": "/assets/index-BtzXisER.js",
+    "browser": "Edge1",
+    "typecheckExit": 0,
+    "unitFilesPassed": 114,
+    "unitTestsPassed": 716,
+    "diagnostics": {
+      "actualFileVerified": true,
+      "downloadEventObserved": false,
+      "toolLimitation": true,
+      "oldActualDownloadAlsoPassed": true,
+      "bytes": 57,
+      "sha256": "09641d96d6a12e37ed1646a6f59d59e5fb55ef9e56419f1f2dd7c3423d044938"
+    },
+    "publicPNG": {
+      "downloadEventObserved": true,
+      "routePreserved": true,
+      "sameHashAsOld": true,
+      "width": 900,
+      "height": 3683,
+      "bytes": 828449,
+      "sha256": "10aa34a91094381d7c6e5c94ef01af4ec94a6d4f25e2d6d76e7da6827c841298"
+    },
+    "aboutScreenshot": "final4-main-about-safe.png",
+    "sourceChangesByThisAgent": false,
+    "accountWrites": false,
+    "newShareGeneration": false,
+    "tabCleanup": [
+      {
+        "tabId": "819561315",
+        "closed": true
+      },
+      {
+        "tabId": "819561295",
+        "closed": false,
+        "reason": "Debugger unattached"
+      }
+    ],
+    "remainingOwnIds": [
+      "819561295"
+    ],
+    "desktopCleanupBlocked": true
+  },
+  "notCovered": [
+    "Successful delivery of private messages to another user",
+    "Every upstream app/digital/product/question entry and role",
+    "Paid or account security changes",
+    "Real avatar/phone/block relationship changes",
+    "ARM64 physical build",
+    "Native Tauri installation packages",
+    "Full video format playback",
+    "Exhaustive account-history export"
+  ],
+  "notes": [
+    "Abort stops browser waiting but cannot undo an upstream write already received.",
+    "Persistent Cookie files do not guarantee official session never expires.",
+    "100 and54targeted tests overlap with716full tests; heterogeneous tests have no combined pass total.",
+    "Old UI creation success is not an old UI acknowledgment pass.",
+    "13ignored probes have no assertions; some return on network failures; never report them as passing."
+  ],
+  "privacy": {
+    "passwords": false,
+    "cookies": false,
+    "privateMessageBodies": false,
+    "rawPrivateResponses": false,
+    "privateBackupsCommitted": false
+  },
+  "evidenceRoot": "test-results/full-20260930",
+  "evidence": [
+    {
+      "path": "frontend/after-download-fix/summary.json",
+      "sha256": "595c66795adb10d59fe1ec08964dfd9443860a7b767b9d56158711a57b976680"
+    },
+    {
+      "path": "frontend/after-download-fix/browser-download-summary.json",
+      "sha256": "90d113010d80a33517d15117246b670027b27ad703913af699ff6c27f3e0faa6"
+    },
+    {
+      "path": "frontend/after-timeout-fix/browser-nav.json",
+      "sha256": "8c30c1c629d4be4733983b0a87f93f8d4d0d6e7b0dac610dc8c1eb57a2bbc629"
+    },
+    {
+      "path": "backend/request-safety/final-summary.json",
+      "sha256": "a476516e2c7629671b37757186ce0b2ecb1d8193b362dfb8fab4c5024e6bd30f"
+    },
+    {
+      "path": "backend/command-coverage.json",
+      "sha256": "4d3011550c29bc75945da3b480abefd361b7ff38e83337cf529ad7a4759472e9"
+    },
+    {
+      "path": "backend/attachment-download/summary.json",
+      "sha256": "d093a0a8f07abb003fec30d2bf615dfc958758a3ff957d8bcb3b391a1887f17a"
+    },
+    {
+      "path": "docker/final4-source-manifest.json",
+      "sha256": "541215e24a9704734988ef534ca4f639be6c3771a30cff2b59e4395badb1bfe3"
+    },
+    {
+      "path": "docker/final4-main-upgrade.json",
+      "sha256": "7af4ffc1ac746533e691da682a083f054763d695b6229d1a9f5711e72c36aa2a"
+    },
+    {
+      "path": "docker/summary.json",
+      "sha256": "2443e942e7cbc41a9316e98145e0e1a176150afddd44d5d38e28bd2a4de11be4"
+    },
+    {
+      "path": "docker/logs-index.json",
+      "sha256": "930e7bec0eb80194a4ba55bb8cbab2f9ba1fd7eedf83df2a4abbf6e89f449762"
+    },
+    {
+      "path": "docker/main-upgrade.json",
+      "sha256": "099945cd53f3caccba81c73a8527d0137bc11feccf84c1f062d50700f6773121"
+    },
+    {
+      "path": "account/account-summary.json",
+      "sha256": "c414479031bb3c9da9216593f7e0c966a9a069591370460d43501a5010ae19f1"
+    },
+    {
+      "path": "account/final-index.json",
+      "sha256": "f49ca765b3e56cbbd368ccbf57987251bb1b2d841ab417f9cdc06784ee48356e"
+    },
+    {
+      "path": "backend/ignored-probe-review.json",
+      "sha256": "9c87af9415bdc6547e7d15091e8ccbfc40116bf2a11258cb656a9ebefa40e64b"
+    },
+    {
+      "path": "account/real-final-ui-inspect.json",
+      "sha256": "ddf599ad69b2552724aff6856939d1903d48c14f4844a46977263f5cc6221c2c"
+    },
+    {
+      "path": "account/real-final-ui-cleanup.json",
+      "sha256": "9afe3fa1556507255fcf528cd5829292088fd2aed8b79f6e2870e2a1c0f86e28"
+    },
+    {
+      "path": "browser/final-ui-publish.json",
+      "sha256": "1292e01511dc9b524867a1d6617ed4a94ced5c206a1fd6a0bebeaa48895e6c19"
+    },
+    {
+      "path": "browser/final-main-about.png",
+      "sha256": "f0296f6febb17250bad21cc53e1dbb2f02252c87c4a99dd524ce78bae52256d4"
+    },
+    {
+      "path": "browser/final-history-link.json",
+      "sha256": "fe74516c45d610a28cd10cec2a425708e9272d48a8b381bf4f30de5c8f42f173"
+    },
+    {
+      "path": "browser/layout.json",
+      "sha256": "79e1e62749db4d7e319ba9118c350b13acc036c1dfc0632be04cadb462d17b88"
+    },
+    {
+      "path": "browser/clipboard-verification.json",
+      "sha256": "e4e7c76b94cd37317c1f7cf91a49dc09b2c5ac6512d9263fb82de81f8c834ac4"
+    },
+    {
+      "path": "browser/official-open.json",
+      "sha256": "86328270ba093ba21ea4dc33c5e24edfeb7bfa9b32f57b39f2f9c5a20fac433c"
+    }
+  ],
+  "shareExport": {
+    "phase": "final3-before-download-guard-fix",
+    "timestamp_utc": "2026-10-01T03:11:58.468Z",
+    "bundle": "/assets/index-ib3wPAtc.js",
+    "publicFeedId": "00000000",
+    "sourceObservedVia": "发现公开卡片 data-feed-id；更多选项→生成长图",
+    "generate": {
+      "attempts": 1,
+      "passed": true,
+      "previewWidth": 900,
+      "previewHeight": 3683
+    },
+    "save": {
+      "attempts": 1,
+      "passed": true,
+      "serverPath": "/app/data/exports/coolapk-feed-00000000.png"
+    },
+    "download": {
+      "passed": true,
+      "method": "普通locator.click实际相对文件链接，waitForEvent(download)返回path",
+      "routeBefore": "#/files",
+      "routeAfter": "#/files",
+      "link": {
+        "download": "coolapk-feed-00000000.png",
+        "rawHref": "/api/files/exports/coolapk-feed-00000000.png",
+        "resolvedHref": "https://coolapk.example.com:88/api/files/exports/coolapk-feed-00000000.png",
+        "target": null
+      },
+      "actualDownloadPath": "C:\\Users\\user\\Desktop\\coolapk-feed-00000000.png",
+      "evidencePath": "D:/dev/coolapk/test-results/full-20260930/frontend/after-timeout-fix/coolapk-feed-00000000.exported.png",
+      "bytes": 828449,
+      "sha256": "10aa34a91094381d7c6e5c94ef01af4ec94a6d4f25e2d6d76e7da6827c841298",
+      "pngSignatureValid": true,
+      "width": 900,
+      "height": 3683
+    },
+    "footer": {
+      "verifiedOnActualDownloadedPng": true,
+      "text": "来自酷安docker版",
+      "officialFeedUrl": "coolapk.com/feed/00000000"
+    },
+    "screenshots": [
+      "share-saved-file-row.png"
+    ],
+    "toolLimitations": {
+      "downloadMedia": {
+        "result": "30秒未获取下载；路由变#/external",
+        "classification": "工具可能把相对href转成绝对临时链接；普通文件页真实点击成功，不能定性为原生文件页断链"
+      }
+    }
+  }
+}

@@ -12,11 +12,12 @@ import { useSettingsStore } from './stores/settings';
 import { setupGlobalAlertProxy } from './utils/toast';
 import { showToast } from './utils/toast';
 import { normalizeCoolapkDeepLink } from './utils/coolapkRoute';
+import { handleGlobalAnchorClick } from './utils/anchorClick';
 import { installDiagnosticLogging, logDiagnostic, summarizeDiagnosticError } from './utils/diagnosticLogger';
 
 // 启动全局原生 alert 代理拦截，统一呈现顶部高质感 Toast
 setupGlobalAlertProxy();
-window.addEventListener('coolapk-storage-error', () => showToast('数据保存失败，请检查 NAS 服务和安装目录权限。', 'error'));
+window.addEventListener('coolapk-storage-error', () => showToast('数据保存失败，请检查 Docker 服务和安装目录权限。', 'error'));
 installDiagnosticLogging();
 
 const app = createApp(App);
@@ -37,19 +38,7 @@ app.use(router);
 // 防止主窗口被导航到外部域名（外部页面接管主窗口 = 钓鱼/凭据回跳源被劫持风险）。
 // 冒泡阶段执行：页面级 handleAnchorClick / vue-router 已处理（preventDefault）的
 // 点击自动让行，只接管"无人处理"的外部链接。
-document.addEventListener('click', (e) => {
-  if (e.defaultPrevented) return;
-  const anchor = (e.target as HTMLElement).closest('a');
-  if (!anchor) return;
-  const href = anchor.getAttribute('href') || '';
-  // 站内相对/锚点链接交给 vue-router 与页面级逻辑
-  if (!href || href.startsWith('/') || href.startsWith('#')) return;
-  e.preventDefault();
-  if (/^https?:\/\//i.test(href)) {
-    void CoolapkTauriAPI.openUrl(anchor.href, useSettingsStore().settings.externalLinkMode);
-  }
-  // 其余 scheme（javascript:、file: 等）直接静默阻止，协议白名单由 open_url 兜底
-}, false);
+document.addEventListener('click', handleGlobalAnchorClick, false);
 
 // 全局错误捕获：把渲染期/异步崩溃显示出来，避免静默白屏，便于定位问题
 function showGlobalError(message: string) {

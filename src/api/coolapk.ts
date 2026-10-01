@@ -2,16 +2,16 @@ import { invoke, isTauri } from '../utils/runtime';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
 import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
-import { requestWithPolicy, type RequestKind } from '../utils/requestCenter';
+import { isReadOnlyCommand, NATIVE_REQUEST_TIMEOUT_MS, requestWithPolicy, WEB_REQUEST_TIMEOUT_MS, type RequestKind, type RequestPolicy } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
 
-async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
+async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}, signal?: AbortSignal) {
   let rustError: unknown;
 
   // 1. 优先使用 Tauri 2 原生 Rust Core (`client.rs`) 发起零延迟 API 请求
   try {
-    const rustRes = await invoke(tauriCmd, tauriArgs);
+    const rustRes = await invokeTransport(tauriCmd, tauriArgs, signal);
     if (rustRes && (rustRes as any).code === 200) {
       return rustRes;
     }
@@ -50,10 +50,24 @@ async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs
 }
 
 async function safeFetch(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}) {
-  return requestWithPolicy(tauriCmd, () => safeFetchOnce(pythonEndpoint, tauriCmd, tauriArgs), { retry: true, kind: 'feed' });
+  return requestWithPolicy(tauriCmd, (signal) => safeFetchOnce(pythonEndpoint, tauriCmd, tauriArgs, signal), nativeRequestPolicy(tauriCmd, tauriArgs, { retry: true, kind: 'feed' }));
 }
 
 type NativeRequestOptions = { retry?: boolean; maxAttempts?: number; timeoutMs?: number; kind?: RequestKind };
+
+function nativeRequestPolicy(command: string, args: Record<string, unknown>, options: NativeRequestOptions): RequestPolicy {
+  const readOnly = isReadOnlyCommand(command, args);
+  return {
+    ...options,
+    retry: readOnly && (options.retry ?? true),
+    operation: readOnly ? 'read' : 'write',
+    timeoutMs: options.timeoutMs ?? (isTauri() ? NATIVE_REQUEST_TIMEOUT_MS : WEB_REQUEST_TIMEOUT_MS),
+  };
+}
+
+function invokeTransport(command: string, args: any, signal?: AbortSignal) {
+  return isTauri() ? invoke(command, args) : invoke(command, args, { signal });
+}
 
 const SAFE_DIAGNOSTIC_ARG_KEYS = new Set([
   'feedId', 'replyId', 'uid', 'page', 'firstItem', 'lastItem', 'listType', 'feedType',
@@ -74,11 +88,11 @@ async function invokeNative(tauriCmd: string, tauriArgs: any = {}, options: Nati
   const started = Date.now();
   const context = summarizeNativeRequestArgs(tauriArgs);
   try {
-    const result = await requestWithPolicy(tauriCmd, async () => {
-      const response = await invoke(tauriCmd, tauriArgs);
+    const result = await requestWithPolicy(tauriCmd, async (signal) => {
+      const response = await invokeTransport(tauriCmd, tauriArgs, signal);
       if (response && (response as any).code === 200) return response as any;
       throw new Error((response as any)?.message || `${tauriCmd} 返回格式不正确`);
-    }, options);
+    }, nativeRequestPolicy(tauriCmd, tauriArgs, options));
     logDiagnostic('debug', 'api', 'request_ok', `${tauriCmd}${context ? ` ${context}` : ''} elapsed_ms=${Date.now() - started}`);
     return result;
   } catch (error) {

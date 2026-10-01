@@ -124,7 +124,7 @@
 
             <div v-else class="status-alert alert-debug">
               <i class="fas fa-server alert-icon"></i>
-              <span>网页版使用 Cookie 凭据导入。凭据保存在 NAS 安装目录，刷新网页和重建容器后自动恢复；浏览器无法自动读取酷安官网的 Cookie。</span>
+              <span>Docker版使用 Cookie 凭据导入。凭据保存在 Docker 安装目录，刷新网页和重建容器后自动恢复；浏览器无法自动读取酷安官网的 Cookie。</span>
             </div>
             <!-- 提示状态框 -->
             <div v-if="successMessage" class="status-alert alert-success">

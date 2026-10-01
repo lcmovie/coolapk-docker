@@ -327,6 +327,7 @@ defineOptions({
   name: 'MessagesPage'
 });
 import { CoolapkTauriAPI } from '../api/coolapk';
+import { isTauri } from '../utils/runtime';
 import { useAuthStore } from '../stores/auth';
 import { useAppStore } from '../stores/app';
 import { useNotificationStore } from '../stores/notifications';
@@ -372,6 +373,7 @@ const navigateToUser = (uid?: string | number) => {
 
 const sessions = ref<any[]>([]);
 const loadingSessions = ref(false);
+let sessionsRequestInFlight = false;
 const loadingMoreSessions = ref(false);
 const hasMoreSessions = ref(true);
 const sessionsMoreError = ref('');
@@ -1306,6 +1308,9 @@ function retryLoadMoreHistory() {
 
 // --- 数据加载 ---
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  // The web transport owns cancellation and its 90-second deadline. A shorter
+  // page timer would leave the request running while the UI starts another one.
+  if (!isTauri()) return promise;
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
     promise.then(
@@ -1331,7 +1336,8 @@ const loadSessions = async () => {
     mobileChatActive.value = false;
     return;
   }
-  if (loadingSessions.value) return;
+  if (sessionsRequestInFlight || loadingSessions.value) return;
+  sessionsRequestInFlight = true;
   if (!sessions.value.length) {
     loadingSessions.value = true;
   }
@@ -1393,6 +1399,7 @@ const loadSessions = async () => {
     console.error('加载会话列表失败', err);
     sessionsError.value = err instanceof Error ? err.message : String(err);
   } finally {
+    sessionsRequestInFlight = false;
     loadingSessions.value = false;
   }
 };

@@ -12,6 +12,9 @@ test-results
 .playwright-mcp
 .build-cache
 source-test.tar.gz
+*.tar.gz
+*.tar
+*.dockerbuild
 .env
 .env.*
 !.env.example

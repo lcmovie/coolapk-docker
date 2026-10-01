@@ -3,7 +3,7 @@
     <form class="access-card" @submit.prevent="submit">
       <img src="../../assets/coolapk-logo-rounded.png" alt="酷安" width="52" height="52" />
       <h1>{{ configured ? `打开${APP_DISPLAY_NAME}` : `设置${APP_DISPLAY_NAME}访问密码` }}</h1>
-      <p>{{ configured ? '输入访问密码，继续使用保存在 NAS 上的酷安账号。' : '首次使用，请为网页设置访问密码。账号和设置将持久保存在 NAS 安装目录。' }}</p>
+      <p>{{ configured ? '输入访问密码，继续使用保存在 Docker 数据目录中的酷安账号。' : '首次使用，请为网页设置访问密码。账号和设置将持久保存在 Docker 安装目录。' }}</p>
       <label for="access-password">{{ configured ? '访问密码' : '访问密码（至少 10 个字符）' }}</label>
       <input id="access-password" v-model="password" type="password" :autocomplete="configured ? 'current-password' : 'new-password'" :minlength="configured ? 1 : 10" required autofocus />
       <template v-if="!configured">

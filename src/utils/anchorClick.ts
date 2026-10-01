@@ -3,6 +3,43 @@ import { CoolapkTauriAPI } from '../api/coolapk';
 import { useSettingsStore } from '../stores/settings';
 import { normalizeCoolapkRoute } from './coolapkRoute';
 import { openFeedDetail } from './feedNavigation';
+import { isTauri } from './runtime';
+
+/** A download attribute only bypasses routing for browser-owned download URLs. */
+function handleBrowserDownload(e: Event, anchor: HTMLAnchorElement): boolean {
+  if (isTauri() || !anchor.hasAttribute('download') || !anchor.getAttribute('href')) return false;
+  try {
+    const url = new URL(anchor.href);
+    const http = ['http:', 'https:'].includes(url.protocol);
+    const localHttp = http && url.origin === window.location.origin && !url.username && !url.password;
+    const localBlob = url.protocol === 'blob:' && url.origin === window.location.origin;
+    const data = url.protocol === 'data:' && /^data:[^,]*,/i.test(anchor.getAttribute('href')!.trim());
+    if (localHttp || localBlob || data) return true;
+    // An external HTTP download still follows the external-link preference,
+    // including protocol-relative URLs whose download attribute browsers ignore.
+    // A download attribute must never authorize javascript:, file:, or a foreign blob.
+    if (http) {
+      e.preventDefault();
+      void CoolapkTauriAPI.openUrl(anchor.href, useSettingsStore().settings.externalLinkMode);
+      return true;
+    }
+  } catch { /* Malformed download URLs are blocked. */ }
+  e.preventDefault();
+  return true;
+}
+
+/** Fallback for anchors not already handled by vue-router or a page handler. */
+export function handleGlobalAnchorClick(e: Event) {
+  if (e.defaultPrevented) return;
+  const anchor = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a') : null;
+  if (!anchor || handleBrowserDownload(e, anchor)) return;
+  const href = anchor.getAttribute('href') || '';
+  if (!href || href.startsWith('/') || href.startsWith('#')) return;
+  e.preventDefault();
+  if (/^https?:\/\//i.test(href)) {
+    void CoolapkTauriAPI.openUrl(anchor.href, useSettingsStore().settings.externalLinkMode);
+  }
+}
 
 /**
  * 统一处理富文本内 <a> 的点击：
@@ -12,8 +49,8 @@ import { openFeedDetail } from './feedNavigation';
  *  - http(s) 链接按设置选择应用内新窗口浏览或调起系统浏览器。
  */
 export function handleAnchorClick(e: Event, feedId?: string | number) {
-  const anchor = (e.target as HTMLElement).closest('a');
-  if (!anchor) return;
+  const anchor = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a') : null;
+  if (!anchor || handleBrowserDownload(e, anchor)) return;
   const href = anchor.getAttribute('href') || '';
   const text = anchor.textContent?.trim() || '';
   e.preventDefault();

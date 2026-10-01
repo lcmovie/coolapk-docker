@@ -1,0 +1,124 @@
+{
+  "phase": "final4-after-BUG004-download-link-fix",
+  "recorded_at": "2026-10-01T13:31:50.967471+00:00",
+  "private_directory": "archives/private/cloud-final4-20261001",
+  "private_files": [
+    {
+      "file": "archives/private/cloud-final4-20261001/final4-build.log",
+      "bytes": 21321,
+      "sha256": "76762ba6a22c34a5afe793d05a0358899819f4679513a2ba3e94d6b552abb302"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/final4-image-20261001.tar.gz",
+      "bytes": 42969122,
+      "sha256": "94c382272666ba28c8f810dac474878abf4fd89822187de02f812febcc46c585"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/final4-main-upgrade.json",
+      "bytes": 3500,
+      "sha256": "7af4ffc1ac746533e691da682a083f054763d695b6229d1a9f5711e72c36aa2a"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/final4-source-files.json",
+      "bytes": 85665,
+      "sha256": "d1ae58ad6cddea386072567e74e51cb6d412abf1569cbee27f1ee9d2c1eedd58"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/final4-source-manifest.json",
+      "bytes": 1393,
+      "sha256": "541215e24a9704734988ef534ca4f639be6c3771a30cff2b59e4395badb1bfe3"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/remote-delta-result.json",
+      "bytes": 4602,
+      "sha256": "50def23b9b0516eaa141f3ddb72908eb690ed849f2b40ede424cab5a16275318"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/compose-up.log",
+      "bytes": 274,
+      "sha256": "0e3eb0e6a34d6dffd44307419aa502792d0761d901ffa5ad5d1170668669ad38"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/critical-after.json",
+      "bytes": 387,
+      "sha256": "4972511641dbf302216e841910c9d14e38a3dbed211830f6945eb65d8170bb9d"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/critical-before.json",
+      "bytes": 387,
+      "sha256": "4972511641dbf302216e841910c9d14e38a3dbed211830f6945eb65d8170bb9d"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/critical-state-before.tar.gz",
+      "bytes": 1650,
+      "sha256": "be3d6ec08b4f65899b571934ba4ffc1adc8177bd06f7284402cb274613f80061"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/result.json",
+      "bytes": 3393,
+      "sha256": "dd79743eae3e5dae5c24c80e64c27fdeefbf8973e31a99a1dbf8096753b5494d"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/source-before.tar.gz",
+      "bytes": 7533250,
+      "sha256": "af57d3c84d3abc9b2f3a2580cc17586efe5eab65a208b6ba4ea6124df6665f67"
+    },
+    {
+      "file": "archives/private/cloud-final4-20261001/upgrade-before/source-final4.tar.gz",
+      "bytes": 6114843,
+      "sha256": "66e5afc1043ffd4d7a1ae29e1af641c9d56d66d2a2a04bda11c47b817bbaf17b"
+    }
+  ],
+  "private_total_bytes": 56739787,
+  "downloaded_verified_files": 8,
+  "downloaded_verified_bytes": 56623306,
+  "all_download_sha_match": true,
+  "private_files_excluded_from_git": true,
+  "private_acl_verification": {
+    "objects": 15,
+    "unexpected_allow_rules": 0,
+    "root_inheritance_disabled": true,
+    "parent_inheritance_disabled": true,
+    "passed": true
+  },
+  "content_verification": {
+    "all_delta_downloads_sha_match": true,
+    "critical_state_contents_match_before_hashes": true,
+    "frozen_source_archive_matches_context": true,
+    "all_frozen_source_files_match": true,
+    "image_config_matches_final4_running_image": true
+  },
+  "source_files_verified": 589,
+  "critical_files_verified": 4,
+  "source_context_sha256": "66e5afc1043ffd4d7a1ae29e1af641c9d56d66d2a2a04bda11c47b817bbaf17b",
+  "frozen_git_diff_sha256": "3b63e58d87e9b4a958a0db9f1fbd5fa98f62160a18454e1b0496f166756144f9",
+  "image_id": "sha256:fca8ec4a213de9366a02c129d30be87704d970b5f413818014ccdb524666b87d",
+  "exported_image_config_id": "sha256:fca8ec4a213de9366a02c129d30be87704d970b5f413818014ccdb524666b87d",
+  "running_main_container_id": "5405b90d2ca1ce1d251c033c9bc2cb6ebc03da694b25ca5b32f09c58e59c1f67",
+  "main_upgrade_checks": {
+    "new_image_matches": true,
+    "container_recreated": true,
+    "healthy": true,
+    "restart_count_zero": true,
+    "critical_hashes_unchanged": true,
+    "env_unchanged": true,
+    "accounts_unchanged": true,
+    "device_profile_unchanged": true,
+    "access_sessions_unchanged": true,
+    "port_bindings_unchanged": true,
+    "mounts_unchanged": true,
+    "compose_file_unchanged": true,
+    "other_containers_unchanged": true,
+    "healthz_ok": true,
+    "existing_export_files_unchanged": true,
+    "existing_cache_files_preserved": true
+  },
+  "main_upgrade_before_private_directory": "/opt/coolapk-e2e-private/final4-main-upgrade-20261001-131913",
+  "rollback_image_tag": "coolapk-docker:rollback-before-final4-20261001-131913",
+  "full_backup_reference": "archives/private/cloud-final-20261001",
+  "full_data_snapshot_repeated": false,
+  "no_data_restore": true,
+  "retention": "isolated app and dedicated builder retained for upcoming authorized upstream merge; no cleanup executed",
+  "source_provenance_note": "frozen source 589 files matches final4 image; documentation updated after build is artifact-only and not included as new runtime change",
+  "secrets_printed": false
+}
