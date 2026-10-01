@@ -1,12 +1,14 @@
+import { PROJECT_API_URL, PROJECT_RELEASES_URL } from '../constants/app';
 import { APP_VERSION } from '../constants/version';
 import type { UpdateChannel } from '../types/settings';
 import { getPlatformInfo, type PlatformInfo } from './platform';
 
 export { APP_VERSION };
-const RELEASES_URL = 'https://api.github.com/repos/daimiaopeng/coolapk-desktop/releases';
+const RELEASES_URL = `${PROJECT_API_URL}/releases`;
 
 export type UpdateInfo = {
   hasNew: boolean;
+  releaseStatus?: 'published' | 'unpublished';
   latestVersion?: string;
   releaseNotes?: string;
   publishedAt?: string;
@@ -16,7 +18,11 @@ export type UpdateInfo = {
   packageType?: UpdatePackageType;
 };
 
-export type UpdatePackageType = 'installer' | 'portable';
+export type UpdatePackageType = 'installer' | 'portable' | 'deb' | 'rpm' | 'unsupported';
+
+export function isUpdatePackageType(value: unknown): value is UpdatePackageType {
+  return typeof value === 'string' && ['installer', 'portable', 'deb', 'rpm', 'unsupported'].includes(value);
+}
 
 export type InstallerAsset = {
   name?: string;
@@ -28,6 +34,19 @@ export function isUpdateAssetCompatible(
   platform: PlatformInfo,
   packageType: UpdatePackageType
 ): boolean {
+  if (platform.os === 'macos' || platform.os === 'linux') {
+    if (!versionFromAssetName(name) || !/^coolapk-desktop[-_]/i.test(name)) return false;
+    const archPattern = platform.arch === 'aarch64'
+      ? /(?:^|[-_.])(?:arm64|aarch64)(?=[-_.]|$)/i
+      : platform.arch === 'x86_64'
+        ? /(?:^|[-_.])(?:x64|amd64|x86_64)(?=[-_.]|$)/i
+        : null;
+    if (!archPattern?.test(name)) return false;
+    if (platform.os === 'macos') return packageType === 'installer' && /\.dmg$/i.test(name);
+    if (packageType === 'portable') return /\.AppImage$/i.test(name);
+    return (packageType === 'deb' && /\.deb$/i.test(name))
+      || (packageType === 'rpm' && /\.rpm$/i.test(name));
+  }
   if (platform.os === 'android') {
     return packageType === 'installer'
       && platform.arch === 'aarch64'
@@ -51,7 +70,7 @@ export function selectInstallerAsset(
   assets: InstallerAsset[],
   platform: PlatformInfo
 ): InstallerAsset | undefined {
-  if (platform.os === 'android') {
+  if (platform.os === 'macos' || platform.os === 'android') {
     return assets.find((asset) => asset.name && asset.browser_download_url
       && isUpdateAssetCompatible(asset.name, platform, 'installer'));
   }
@@ -77,6 +96,10 @@ export function selectPortableAsset(
   assets: InstallerAsset[],
   platform: PlatformInfo
 ): InstallerAsset | undefined {
+  if (platform.os === 'linux') {
+    return assets.find((asset) => asset.name && asset.browser_download_url
+      && isUpdateAssetCompatible(asset.name, platform, 'portable'));
+  }
   if (platform.os !== 'windows') return undefined;
   const candidates = assets.filter(
     (asset) => asset.name && /[-_]portable\.exe$/i.test(asset.name) && asset.browser_download_url
@@ -155,18 +178,26 @@ export function normalizeVersion(value: string): string | null {
 }
 
 async function pickRelease(channel: UpdateChannel): Promise<any> {
-  const headers = { Accept: 'application/vnd.github.v3+json' };
-  if (channel === 'beta') {
-    // 测试版渠道：列出最近发布（含预发布），取最新一条
-    const response = await fetch(`${RELEASES_URL}?per_page=30`, { headers });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const url = channel === 'beta' ? `${RELEASES_URL}?per_page=30` : `${RELEASES_URL}/latest`;
+    const response = await fetch(url, {
+      headers: { Accept: 'application/vnd.github+json' },
+      credentials: 'omit',
+      signal: controller.signal,
+    });
+    if (channel === 'stable' && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
-    const releases = await response.json();
-    if (!Array.isArray(releases) || releases.length === 0) throw new Error('未获取到任何发布版本');
-    return releases[0];
+    const data = await response.json();
+    if (channel === 'beta') {
+      if (!Array.isArray(data)) throw new Error('GitHub 发布数据格式错误');
+      return data[0] || null;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
   }
-  const response = await fetch(`${RELEASES_URL}/latest`, { headers });
-  if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
-  return await response.json();
 }
 
 export function formatReleaseDate(dateStr?: string): string {
@@ -201,15 +232,26 @@ export async function checkLatestRelease(
   packageType: UpdatePackageType = 'installer'
 ): Promise<UpdateInfo> {
   const release = await pickRelease(channel);
+  if (!release) return {
+    hasNew: false,
+    releaseStatus: 'unpublished',
+    latestVersion: APP_VERSION,
+    releaseNotes: '本项目尚未发布 GitHub Release。后续更新信息将在 lcmovie/coolapk-docker 发布；Docker 版请通过 Docker Compose 更新并保留 data 目录。',
+    downloadUrl: PROJECT_RELEASES_URL,
+    packageType: 'unsupported',
+  };
   const tagName = release.tag_name || '';
   const hasNew = Boolean(normalizeVersion(tagName)) && isNewerVersion(tagName);
 
-  // 按平台挑选 Android APK、NSIS 安装包或真正的单文件便携版，并严格匹配架构与版本号。
+  // 按平台、发行方式、架构和 release 版本选择更新包。
   let installerUrl: string | undefined;
   const assets: InstallerAsset[] = release.assets || [];
   const currentPlatform = platform ?? await getPlatformInfo();
   const candidates = assets.filter((asset) => {
-    if (!asset.name || !asset.browser_download_url) return false;
+    if (packageType === 'unsupported' || !asset.name || !asset.browser_download_url) return false;
+    if (currentPlatform.os === 'macos' || currentPlatform.os === 'linux') {
+      return isUpdateAssetCompatible(asset.name, currentPlatform, packageType);
+    }
     if (currentPlatform.os === 'android') {
       return packageType === 'installer' && /-android-arm64\.apk$/i.test(asset.name);
     }
@@ -230,7 +272,9 @@ export async function checkLatestRelease(
       ? []
       : candidates;
 
-  const selectedAsset = (packageType === 'portable'
+  const selectedAsset = (packageType === 'deb' || packageType === 'rpm'
+    ? validCandidates[0]
+    : packageType === 'portable'
     ? selectPortableAsset(validCandidates, currentPlatform)
     : selectInstallerAsset(validCandidates, currentPlatform));
   installerUrl = selectedAsset?.browser_download_url;
@@ -243,10 +287,12 @@ export async function checkLatestRelease(
 
   return {
     hasNew,
+    releaseStatus: 'published',
     latestVersion: tagName || '最新发布',
     releaseNotes,
     publishedAt,
-    downloadUrl: release.html_url || 'https://github.com/daimiaopeng/coolapk-desktop/releases',
+    downloadUrl: typeof release.html_url === 'string' && release.html_url.startsWith(`${PROJECT_RELEASES_URL}/`)
+      ? release.html_url : PROJECT_RELEASES_URL,
     installerUrl,
     installerName: selectedAsset?.name,
     packageType,
@@ -254,6 +300,8 @@ export async function checkLatestRelease(
 }
 
 export function versionFromAssetName(name: string) {
+  const desktopMatch = name.match(/^coolapk-desktop[_-](v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:_(?:x64|amd64|x86_64|arm64|aarch64)|-\d+\.(?:x86_64|aarch64))/i);
+  if (desktopMatch) return normalizeVersion(desktopMatch[1]) || undefined;
   const androidMatch = name.match(/^coolapk-(v?.+)-android-(?:arm64|aarch64)(?:-\d+-\d+)?\.apk$/i);
   if (androidMatch) return normalizeVersion(androidMatch[1]) || undefined;
   const match = name.match(/(?:^|[-_])v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=[-_]|$)/i);

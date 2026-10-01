@@ -63,7 +63,9 @@
         </div>
         <select v-model="settingsStore.settings.imageOpenMode" class="select-control">
           <option value="internal">内置查看器 (推荐)</option>
-          <option value="system">系统默认查看器</option>
+          <option value="system" :disabled="!supportsSystemViewer">
+            系统默认查看器{{ supportsSystemViewer ? '' : '（当前平台不支持）' }}
+          </option>
         </select>
       </div>
 
@@ -155,11 +157,11 @@
       <h4 class="group-title">链接</h4>
       <div class="setting-row">
         <div class="row-info">
-          <span class="row-label">外部链接打开方式</span>
-          <span class="row-sub">点击站外链接时在应用内新窗口浏览，或调用系统浏览器</span>
+          <span class="row-label">酷安网页打开方式</span>
+          <span class="row-sub">未适配为站内页面的酷安网页按此设置打开；非酷安域名始终直接使用系统浏览器</span>
         </div>
         <select v-model="settingsStore.settings.externalLinkMode" class="select-control">
-          <option value="internal">应用内新窗口 (推荐)</option>
+          <option value="internal">应用内查看 (推荐)</option>
           <option value="system">系统浏览器</option>
         </select>
       </div>
@@ -172,8 +174,11 @@ import { computed, ref } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 import AppButton from '../../components/common/AppButton.vue';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
+// 系统默认查看器依赖桌面端的 opener，iOS/Android 上没有实现。
+const supportsSystemViewer = !isTouchMobilePlatform();
 const keywordInput = ref('');
 
 const blockedKeywords = computed(() => settingsStore.settings.blockedKeywords);

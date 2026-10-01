@@ -31,7 +31,7 @@ get_secondhand_feeds get_hot_topics get_favorite_list get_feed_collection_status
 get_collection_item_list get_collection_detail get_feed_forward_list get_feed_like_list
 get_feed_change_history search_tags get_device_feed_list get_question_answers get_vote_comments
 get_hit_history get_recent_history get_spam_feed_list get_hidden_replies get_followed_topics
-search_users get_search_suggestions_app search_feed_topics get_product_detail_by_name
+search_users get_search_suggestions_app search_feed_topics search_publish_topics get_product_versions get_product_detail_by_name
 get_load_config get_home_tab_config get_feed_detail get_public_feed_detail get_editable_feed
 resolve_video_url resolve_live_photo_video get_live_photo_video_header get_reply_detail
 get_feed_replies get_sub_replies get_hot_replies search_all search_by_type get_hot_searches
@@ -122,7 +122,10 @@ export async function requestWithPolicy<T>(label: string, task: (signal: AbortSi
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const controller = new AbortController();
-        const result = await withTimeout(Promise.resolve().then(() => task(controller.signal)), controller, timeoutMs, label);
+        const request = Promise.resolve().then(() => task(controller.signal));
+        // A long-running native command (for example a file upload) can opt out of
+        // the UI timeout. Timing out this wrapper does not cancel the native future.
+        const result = timeoutMs === 0 ? await request : await withTimeout(request, controller, timeoutMs, label);
         requestState.lastError = '';
         requestState.lastSuccessAt = Date.now();
         return result;

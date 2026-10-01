@@ -101,7 +101,7 @@
           <option value="tray">最小化到托盘</option>
         </select>
       </div>
-      <p v-if="settingsStore.settings.closeToTray" class="tray-tip">
+      <p v-if="nativeRuntime && settingsStore.settings.closeToTray" class="tray-tip">
         <i class="fas fa-info-circle"></i>
         最小化到托盘后，可通过托盘图标或托盘菜单恢复窗口，并从菜单选择“退出”来彻底关闭应用。
       </p>
@@ -122,7 +122,7 @@
         <AppSwitch v-model="settingsStore.settings.rememberWindowState" />
       </div>
 
-      <div class="setting-row">
+      <div v-if="showDesktopLayoutSwitch" class="setting-row">
         <div class="row-info">
           <span class="row-label">禁止窄窗口自动切换手机模式</span>
           <span class="row-sub">窗口宽度缩小（&lt; 720px）时保持桌面端顶栏与侧边栏，不自动切换为手机端导航栏</span>
@@ -143,9 +143,12 @@ import { computed, onMounted, ref } from 'vue';
 import { isTauri } from '../../utils/runtime';
 import { useSettingsStore } from '../../stores/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
 const nativeRuntime = isTauri();
+// 桌面端语义的开关：手机上窗口永远窄，开了只会把移动外壳关掉，因此不展示。
+const showDesktopLayoutSwitch = !isTouchMobilePlatform();
 const autostartError = ref(false);
 
 const closeBehavior = computed({

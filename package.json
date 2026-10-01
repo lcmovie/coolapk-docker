@@ -1,11 +1,11 @@
 {
-  "name": "coolapk-desktop",
+  "name": "coolapk-docker",
   "private": true,
   "version": "1.27.6",
-  "description": "基于 Tauri 2、Vue 3 和 Rust 的非官方酷安桌面客户端",
+  "description": "基于 Vue 3、Rust / Axum 与 Docker Compose 的第三方酷安 Docker 客户端",
   "author": "daimiaopeng",
   "license": "MIT",
-  "repository": "https://github.com/daimiaopeng/coolapk-desktop",
+  "repository": "https://github.com/lcmovie/coolapk-docker",
   "engines": {
     "node": ">=22"
   },
@@ -40,6 +40,8 @@
     "@tauri-apps/plugin-notification": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@tauri-apps/plugin-stronghold": "^2.0.0",
+    "fflate": "^0.8.3",
+    "heic-to": "^1.5.2",
     "pinia": "^2.1.7",
     "qrcode": "^1.5.4",
     "vue": "^3.4.21",
@@ -55,5 +57,15 @@
     "vite": "^8.2.0",
     "vitest": "^4.1.11",
     "vue-tsc": "^3.3.9"
-  }
+  },
+  "homepage": "https://github.com/lcmovie/coolapk-docker",
+  "bugs": {
+    "url": "https://github.com/lcmovie/coolapk-docker/issues"
+  },
+  "contributors": [
+    {
+      "name": "lcmovie",
+      "url": "https://github.com/lcmovie"
+    }
+  ]
 }

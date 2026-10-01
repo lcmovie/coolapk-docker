@@ -17,6 +17,7 @@ export interface NECaptchaConfig {
   captchaId: string;
   element?: string | HTMLElement;
   mode?: 'float' | 'embed' | 'popup';
+  apiVersion?: 2;
   width?: string | number;
   lang?: string;
   onReady?: (instance?: NECaptchaInstance) => void;

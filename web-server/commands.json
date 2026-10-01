@@ -94,6 +94,8 @@
     "search_users",
     "get_search_suggestions_app",
     "search_feed_topics",
+    "search_publish_topics",
+    "get_product_versions",
     "get_product_detail_by_name",
     "get_load_config",
     "get_home_tab_config",
@@ -212,6 +214,7 @@
     "search_apks_by_tag",
     "get_goods_search_hot_words",
     "search_goods",
+    "prepare_goods_by_url",
     "get_goods_detail",
     "get_goods_list_types",
     "get_goods_list",
@@ -224,7 +227,8 @@
     "delete_goods_list_items",
     "edit_goods_list_item",
     "vote_goods_list_item",
-    "bind_feed_to_goods_list"
+    "bind_feed_to_goods_list",
+    "upload_publish_video"
   ],
   "downloadCommands": [
     "start_apk_download",
@@ -239,6 +243,9 @@
     "save_cookie_securely",
     "get_user_cookie",
     "fetch_external_page",
-    "update_device_profile"
+    "update_device_profile",
+    "upload_file_to_cdn",
+    "cancel_cdn_upload",
+    "take_update_install_error"
   ]
 }

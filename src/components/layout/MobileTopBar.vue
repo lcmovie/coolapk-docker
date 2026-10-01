@@ -68,7 +68,8 @@ const routeTitles: Record<string, string> = {
   '/apps': '应用',
   '/discover': '发现',
   '/games': '游戏',
-  '/downloads': '下载管理',
+  '/downloads': '上传和下载',
+  '/cdn-upload': '酷安 CDN 文件上传',
   '/topics': '话题',
   '/favorites': '收藏',
   '/my-likes': '我的赞',
@@ -146,7 +147,7 @@ function goBack() {
     align-items: center;
     gap: 10px;
     min-height: var(--mobile-topbar-height);
-    padding: env(safe-area-inset-top) 10px 0;
+    padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
     border-bottom: 1px solid var(--border-light);
     background: color-mix(in srgb, var(--surface) 96%, transparent);
     backdrop-filter: blur(14px);

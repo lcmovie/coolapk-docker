@@ -2,6 +2,7 @@
 @import './themes.css';
 @import './reset.css';
 @import './utilities.css';
+@import './touch.css';
 @import './transitions.css';
 
 /* Keep the desktop's component dimensions on large displays; only the outer canvas narrows. */

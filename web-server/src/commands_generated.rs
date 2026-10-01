@@ -792,6 +792,14 @@ pub async fn search_feed_topics(
     state.client.search_feed_topics(&query, page).await
 }
 
+pub async fn search_publish_topics(state: &AppState, query: String, page: u32, recent_ids: String) -> Result<Value, String> {
+    state.client.search_publish_topics(&query, page, &recent_ids).await
+}
+
+pub async fn get_product_versions(state: &AppState, product_id: String) -> Result<Value, String> {
+    state.client.get_product_versions(&product_id).await
+}
+
 pub async fn get_product_detail_by_name(
     state: &AppState,
     name: String,
@@ -1253,15 +1261,19 @@ pub async fn upload_image(
     content_type: String,
     dir: String,
     to_uid: Option<String>,
+    live_video_bytes: Option<Vec<u8>>,
+    hdr: Option<u32>,
 ) -> Result<Value, String> {
     state
         .client
-        .upload_image(
+        .upload_image_with_live(
             &image_bytes,
             &file_name,
             &content_type,
             &dir,
             to_uid.as_deref(),
+            live_video_bytes.as_deref(),
+            hdr.unwrap_or(0),
         )
         .await
 }
@@ -1408,10 +1420,11 @@ pub async fn create_feed(
     message: String,
     pic: Option<String>,
     post_token: Option<String>,
+    options: Option<crate::coolapk::client::PublishOptions>,
 ) -> Result<Value, String> {
     state
         .client
-        .create_feed(&message, pic.as_deref(), post_token.as_deref())
+        .create_feed_with_options(&message, pic.as_deref(), post_token.as_deref(), options.as_ref())
         .await
 }
 
@@ -1731,6 +1744,10 @@ pub async fn search_goods(
         .await
 }
 
+pub async fn prepare_goods_by_url(state: &AppState, url: String) -> Result<Value, String> {
+    state.client.prepare_goods_by_url(&url).await
+}
+
 pub async fn get_goods_detail(
     state: &AppState,
     goods_id: String,
@@ -1873,4 +1890,8 @@ pub async fn bind_feed_to_goods_list(
         .client
         .bind_feed_to_goods_list(&feed_id, &goods_list_id)
         .await
+}
+
+pub async fn upload_publish_video(state: &AppState, video_bytes: Vec<u8>, file_name: String, cover_bytes: Vec<u8>, duration: u64) -> Result<Value, String> {
+    state.client.upload_publish_video(&video_bytes, &file_name, &cover_bytes, duration).await
 }

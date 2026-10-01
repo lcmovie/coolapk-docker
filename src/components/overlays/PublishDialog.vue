@@ -3,12 +3,24 @@
     :is-open="appStore.isPublishOpen && !shuzilmGuideState.visible"
     :title="isEditMode ? '重新编辑动态' : '发布新动态'"
     :width="720"
-    @close="appStore.closePublish"
+    dialog-class="publish-dialog"
+    @close="closePublish"
   >
+    <template #header><button type="button" class="publish-back" aria-label="返回" :disabled="submitting" @click="closePublish"><PublishIcon name="close" /></button><h3 class="publish-title">{{ isEditMode ? '重新编辑' : '发动态' }}</h3><button v-if="!isEditMode" type="button" class="header-drafts" :disabled="submitting || savingDraft" @click="showDrafts = true">草稿（{{ draftList.length }}）</button><button type="button" class="mobile-preview" @click="previewMode = !previewMode">{{ previewMode ? '编辑' : '预览' }}</button><AppButton class="mobile-publish" variant="primary" :disabled="editLoading || !!editLoadError || processingMedia || (!message.trim() && images.length === 0 && !videoAttachment) || submitting" :loading="submitting" @click="handlePublish">{{ isEditMode ? '保存' : '发布' }}</AppButton></template>
     <div class="publish-container">
       <div v-if="editLoading" class="panel-tip">正在读取可编辑动态...</div>
       <div v-else-if="editLoadError" class="error-tip"><i class="fas fa-exclamation-circle"></i> {{ editLoadError }}</div>
       <template v-else>
+      <input ref="videoInputRef" type="file" accept="video/mp4,video/quicktime,.mp4,.mov" style="display:none" @change="handleVideoSelected" />
+      <fieldset :disabled="submitting" class="publish-fields">
+      <div class="publish-fields-layout">
+      <PublishOptionSheet :is-open="showDrafts && !isEditMode" title="草稿箱" @close="showDrafts = false">
+        <div class="draft-list"><div v-for="draft in draftList" :key="draft.id" class="draft-card"><button type="button" class="draft-open" @click="switchDraft(draft)"><span class="draft-title">{{ draft.title }}</span><span class="draft-meta">{{ draft.state.images.length }} 张图片 · {{ draft.state.target?.title || '普通动态' }}</span></button><button type="button" class="draft-delete" :disabled="savingDraft" :aria-label="`删除草稿${draft.title}`" @click="removeDraft(draft.id)"><i class="far fa-trash-alt"></i></button></div><p v-if="!draftList.length" class="publish-picker-state">暂无草稿</p></div>
+        <template #footer><button type="button" class="publish-confirm" :disabled="savingDraft" @click="newDraft">新建草稿</button></template>
+      </PublishOptionSheet>
+      <div class="publish-compose-scroll custom-scrollbar">
+      <!-- APK normal_feed_content_v8 在正文上方显示关联板块。 -->
+      <div v-if="!isEditMode" class="publish-target-area"><PublishTargetPicker ref="targetPicker" v-model="publishTarget" /><PublishProductOptions v-if="publishTarget?.type === 'product_phone'" :target="publishTarget" v-model="productOptions" /></div>
       <div v-if="previewMode" class="preview-box custom-scrollbar">
         <div class="preview-content" v-html="previewHtml"></div>
         <div v-if="!message.trim()" class="preview-empty">输入内容后此处显示预览效果</div>
@@ -16,7 +28,7 @@
       <div
         v-else
         ref="messageInput"
-        contenteditable="true"
+        :contenteditable="!submitting"
         role="textbox"
         aria-label="动态内容"
         aria-multiline="true"
@@ -32,20 +44,32 @@
         @compositionend="syncEditor"
       ></div>
 
-      <div class="publish-media-preview" v-if="images.length > 0">
-        <div v-for="(img, i) in images" :key="i" class="media-thumb">
-          <AppImage :src="img.preview" alt="动态图片" image-class="media-thumb-image" />
-          <button class="remove-img" :disabled="submitting" @click="removeImage(i)"><i class="fas fa-times"></i></button>
+      <div v-if="videoAttachment" class="publish-video-preview"><video :src="videoAttachment.preview" :poster="videoAttachment.coverPreview" controls preload="metadata"></video><button type="button" aria-label="移除视频" :disabled="submitting" @click="clearVideo"><i class="fas fa-times"></i></button><p v-if="uploadingVideo">正在上传视频…</p></div>
+      <div v-if="errorMessage.startsWith('最多只能添加')" class="publish-image-limit-tip"><i class="fas fa-exclamation-circle"></i> {{ errorMessage }}</div>
+      <div v-if="images.length > 0" class="publish-media-area">
+        <div v-if="!isEditMode && !['3', '4'].includes(productOptions.subTypeId || '')" class="publish-cover-mode" role="group" aria-label="图片展示模式">
+          <span class="publish-cover-mode-indicator" :class="{ 'is-large-cover': largeCover }" aria-hidden="true"></span>
+          <button type="button" :class="{ 'is-selected': largeCover }" :aria-pressed="largeCover" :disabled="submitting" @click="largeCover = true">大封面</button>
+          <button type="button" :class="{ 'is-selected': !largeCover }" :aria-pressed="!largeCover" :disabled="submitting" @click="largeCover = false">九宫格</button>
         </div>
-        <div v-if="uploadingImages" class="upload-tip">
+        <TransitionGroup name="publish-image" tag="div" class="publish-media-preview" :class="{ 'large-cover-mode': largeCover }">
+        <div v-for="(img, i) in images" :key="imageDragKey(img)" :data-image-key="imageDragKey(img)" class="media-item" :class="{ 'is-dragging': dragImageIndex === i }">
+          <div class="media-thumb" @pointerdown="beginImageDrag($event, i)" @dragstart.prevent>
+            <AppImage :src="img.preview" alt="动态图片" image-class="media-thumb-image" :draggable="false" />
+            <button class="remove-img" :disabled="submitting" aria-label="移除图片" @click="removeImage(i)"><i class="fas fa-times"></i></button>
+          </div>
+          <label v-if="img.liveVideo || img.liveIdentifier" class="live-photo-mode"><select :value="img.liveEnabled ? 'live' : 'still'" :disabled="submitting" aria-label="实况上传方式" @change="img.liveEnabled = ($event.target as HTMLSelectElement).value === 'live'; img.url = undefined"><option value="live">上传实况</option><option value="still">仅静态照片</option></select></label>
+          <span v-if="img.liveIdentifier && !img.liveVideo && img.liveEnabled" class="live-photo-missing">缺少原始 MOV</span>
+        </div>
+        <div v-if="uploadingImages" key="upload-tip" class="upload-tip">
           <i class="fas fa-circle-notch fa-spin"></i> 正在上传图片 {{ uploadedCount }}/{{ images.filter((image) => !!image.file).length }}...
         </div>
+        </TransitionGroup>
       </div>
-
       <input
         ref="imageInputRef"
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif,.mov,.mp4"
         multiple
         style="display: none"
         @change="handleImageSelected"
@@ -88,27 +112,21 @@
         </div>
       </div>
 
-      <!-- 话题面板 -->
-      <div v-if="showTopicPanel" class="topic-panel custom-scrollbar">
-        <div class="topic-create">
-          <input v-model="customTopic" type="text" maxlength="80" placeholder="输入自定义话题名称" aria-label="自定义话题名称" @keydown.enter.prevent="insertCustomTopic" />
-          <button type="button" :disabled="!customTopic.trim()" @mousedown.prevent @click="insertCustomTopic">插入话题</button>
-        </div>
-        <div class="topic-panel-label">热门话题</div>
-        <div v-if="topicsLoading" class="panel-tip"><i class="fas fa-circle-notch fa-spin"></i> 正在获取热门话题...</div>
-        <div v-else-if="topics.length === 0" class="panel-tip">暂无热门话题</div>
-        <button
-          v-for="(t, idx) in topics"
-          :key="t.id || t.tag || t.title || idx"
-          class="topic-item"
-          :title="getTopicTitle(t)"
-          @mousedown.prevent
-          @click="insertTopic(getTopicTitle(t))"
-        >
-          <i class="fas fa-hashtag topic-hash"></i>
-          <span class="topic-name">{{ getTopicTitle(t) }}</span>
-        </button>
+      <div class="publish-settings">
+      <PublishExtras ref="extrasPicker" v-if="!isEditMode" :uid="currentDraftAccount()" v-model="extraOptions" :attachment-title="attachmentTitle" @attachment-title="attachmentTitle = $event" />
+      <!-- 官方仅自己可见使用 publish_status=1，不能直接把 -1 写到请求表单。 -->
+      <PublishOptionSheet :is-open="showVisibility" title="谁可以看" @close="showVisibility = false"><button v-for="choice in visibilityChoices" :key="choice.value" type="button" class="publish-choice" :class="{ 'is-selected': visibleStatus === choice.value }" @click="visibleStatus = choice.value; showVisibility = false"><i :class="choice.icon"></i><span>{{ choice.title }}</span><i :class="visibleStatus === choice.value ? 'fas fa-check-circle' : 'far fa-circle'"></i></button></PublishOptionSheet>
       </div>
+      <div v-if="errorMessage && !errorMessage.startsWith('最多只能添加')" class="error-tip"><i class="fas fa-exclamation-circle"></i> {{ errorMessage }}</div>
+      </div>
+      <!-- APK submit_feed_v8 的推荐区与工具区固定在编辑区底部。 -->
+      <div class="publish-bottom-area">
+      <PublishTopicRecommendations :node-type="publishTarget?.type === 'tag' ? '3' : publishTarget?.type === 'apk' ? '1' : publishTarget?.type === 'product_phone' ? '7' : '0'" :node-name="publishTarget?.title || ''" :uid="currentDraftAccount()" :text="message" :cursor="topicInsertOffset" :refresh="topicRefresh" @select="insertRecommendedTopic" />
+
+      <!-- 话题选择器保留正文光标，选择后替换正在输入的井号片段。 -->
+      <PublishTopicPicker v-if="showTopicPanel" :uid="currentDraftAccount()" :initial-query="topicQuery" @select="selectPublishTopic" @close="showTopicPanel = false" />
+
+      <PublishMentionPicker v-if="showMentionPanel" :uid="currentDraftAccount()" :initial-query="mentionQuery" @select="selectMentionUsers" @close="showMentionPanel = false" />
 
       <div class="publish-toolbar">
         <div class="toolbar-tools">
@@ -119,9 +137,10 @@
             @mousedown.prevent
             @click="toggleEmojiPanel"
           >
-            <i class="far fa-smile"></i> 表情
+            <PublishIcon name="emotion" /> <span>表情</span>
           </button>
-          <button class="tool-btn" title="添加图片" @click="triggerImageUpload"><i class="fas fa-image"></i> 图片</button>
+          <button class="tool-btn" :disabled="!!videoAttachment" title="添加图片" @click="triggerImageUpload"><PublishIcon name="photo" /> <span>图片</span></button>
+          <button class="tool-btn" title="@酷友" @mousedown.prevent @click="insertAtMention"><PublishIcon name="mention" /> <span>提醒</span></button>
           <button
             class="tool-btn"
             :class="{ 'is-active': showTopicPanel }"
@@ -129,27 +148,39 @@
             @mousedown.prevent
             @click="toggleTopicPanel"
           >
-            <i class="fas fa-hashtag"></i> 话题
+            <PublishIcon name="topic" /> <span>话题</span>
           </button>
-          <button class="tool-btn" title="@酷友" @mousedown.prevent @click="insertAtMention"><i class="fas fa-at"></i> 提醒</button>
-          <button class="tool-btn" title="预览效果" @click="previewMode = !previewMode">
-            <i class="far fa-eye"></i> {{ previewMode ? '编辑' : '预览' }}
+
+          <button v-if="!isEditMode" class="tool-btn" title="添加应用" @click="targetPicker?.openPicker('apk')"><PublishIcon name="app" /><span>应用</span></button>
+          <button v-if="!isEditMode" class="tool-btn" title="添加好物" @click="extrasPicker?.openGoods()"><PublishIcon name="goods" /><span>好物</span></button>
+          <button class="tool-btn" title="更多" :aria-expanded="showMore" aria-controls="publish-more-panel" @click="showMore = !showMore"><PublishIcon name="more" /><span>更多</span></button>
+          <button class="tool-btn desktop-preview" title="预览效果" @click="previewMode = !previewMode">
+            <PublishIcon name="eye" /> <span>{{ previewMode ? '编辑' : '预览' }}</span>
           </button>
         </div>
+        <button v-if="!isEditMode" type="button" class="publish-visibility" title="谁可以看" @click="showVisibility = true"><i :class="visibleStatus === 1 ? 'fas fa-globe-asia' : 'fas fa-lock'"></i><span>{{ visibleStatus === 1 ? '所有人' : '仅自己' }}</span></button>
         <span class="word-count">{{ message.length }} / 1000</span>
       </div>
-
-      <div v-if="errorMessage" class="error-tip">
-        <i class="fas fa-exclamation-circle"></i> {{ errorMessage }}
+      <!-- APK 的更多区域使用图标网格，在工具栏下方展开。 -->
+      <div v-if="showMore" id="publish-more-panel" class="publish-more-grid" aria-label="更多发布选项">
+        <button v-if="!isEditMode" type="button" :disabled="processingMedia" @click="openVideoPicker"><span class="more-icon"><i class="fas fa-video"></i></span><span>视频</span></button>
+        <button v-if="!isEditMode" type="button" @click="showMore = false; extrasPicker?.openDeclaration()"><span class="more-icon"><i class="far fa-file-alt"></i></span><span>内容声明</span></button>
+        <button v-if="!isEditMode && extrasPicker?.hasDyhs" type="button" @click="showMore = false; extrasPicker?.openDyh()"><span class="more-icon"><i class="far fa-newspaper"></i></span><span>订阅号</span></button>
+        <button type="button" @click="showMore = false; showDrafts = true"><span class="more-icon"><i class="far fa-save"></i></span><span>草稿箱</span></button>
+        <button type="button" @click="showMore = false; previewMode = !previewMode"><span class="more-icon"><PublishIcon name="eye" /></span><span>{{ previewMode ? '返回编辑' : '预览' }}</span></button>
+        <p v-if="videoPickerHint" class="publish-more-hint">{{ videoPickerHint }}</p>
       </div>
+      </div>
+      </div>
+      </fieldset>
       </template>
     </div>
 
     <template #footer>
-      <AppButton variant="ghost" @click="appStore.closePublish">取消</AppButton>
+      <AppButton variant="ghost" :disabled="submitting" @click="closePublish">取消</AppButton>
       <AppButton
         variant="primary"
-        :disabled="editLoading || !!editLoadError || (!message.trim() && images.length === 0) || submitting"
+        :disabled="editLoading || !!editLoadError || processingMedia || (!message.trim() && images.length === 0 && !videoAttachment) || submitting"
         :loading="submitting"
         @click="handlePublish"
       >
@@ -160,7 +191,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { preparePublishVideo, type PublishVideo } from '../../utils/publishVideo';
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useAppStore } from '../../stores/app';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
@@ -169,9 +201,22 @@ import { renderCoolapkEmoji, EMOJI_MAP, getEmojiUrl } from '../../utils/coolapkE
 import { useRecentEmojis } from '../../utils/recentEmojis';
 import { renderCoolapkRichText } from '../../utils/richText';
 import { extractFeedImageInputs, normalizeFeedImageItems } from '../../utils/livePhoto';
-import { clearPublishDraft, loadPublishDraft, savePublishDraft } from '../../utils/publishDrafts';
+import { listFullPublishDrafts, saveFullPublishDraft, deleteFullPublishDraft, restoreFullPublishDraft, type FullPublishDraft, type PublishDraftState } from '../../utils/publishDrafts';
 import { verifyWithCaptcha, extractCaptchaParamsFromResponse } from '../../utils/neteaseCaptcha';
 import { shuzilmGuideState, openShuzilmGuide, isRiskControlError } from '../../utils/shuzilmDeviceGuide';
+import PublishIcon from './PublishIcon.vue';
+import PublishOptionSheet from './PublishOptionSheet.vue';
+import '../../styles/publish.css';
+import PublishTopicPicker from './PublishTopicPicker.vue';
+import PublishTargetPicker from './PublishTargetPicker.vue';
+import PublishExtras from './PublishExtras.vue';
+import type { PublishTarget, PublishOptions } from '../../types/publish';
+import PublishProductOptions from './PublishProductOptions.vue';
+import { validateProductPublish } from '../../utils/publishProduct';
+import { preparePublishImage, originalLiveCompanions, movePublishImage, type PublishImage } from '../../utils/publishMedia';
+import PublishMentionPicker, { type MentionUser } from './PublishMentionPicker.vue';
+import PublishTopicRecommendations from './PublishTopicRecommendations.vue';
+import type { PublishTopic } from '../../utils/publishTopics';
 import AppDialog from '../common/AppDialog.vue';
 import AppButton from '../common/AppButton.vue';
 import AppImage from '../common/AppImage.vue';
@@ -181,7 +226,36 @@ const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
 const MAX_IMAGES = 9;
 const message = ref('');
-const images = ref<{ file?: File; preview: string; url?: string }[]>([]);
+const publishTarget = ref<PublishTarget | null>(null);
+const productOptions = ref<PublishOptions>({});
+const extraOptions = ref<PublishOptions>({ originalType: 0, extraUrl: '', dyhId: '' });
+const attachmentTitle = ref('');
+const targetPicker = ref<InstanceType<typeof PublishTargetPicker> | null>(null);
+const extrasPicker = ref<InstanceType<typeof PublishExtras> | null>(null);
+const showMore = ref(false);
+const visibleStatus = ref<1 | -1>(1);
+const showVisibility = ref(false);
+const visibilityChoices = [{ value: 1, title: '所有人', icon: 'fas fa-globe-asia' }, { value: -1, title: '仅自己', icon: 'fas fa-lock' }] as const;
+watch(publishTarget, () => { if (!restoringDraft) productOptions.value = {}; });
+const images = ref<PublishImage[]>([]);
+const largeCover = ref(false);
+const processingMedia = ref(false);
+const dragImageIndex = ref(-1);
+const videoAttachment = ref<PublishVideo>();
+const videoInputRef = ref<HTMLInputElement | null>(null);
+const videoPickerHint = ref('');
+const uploadingVideo = ref(false);
+function clearVideo() { if (videoAttachment.value) URL.revokeObjectURL(videoAttachment.value.preview); videoAttachment.value = undefined; }
+function openVideoPicker() {
+  videoPickerHint.value = '';
+  if (submitting.value || processingMedia.value) return;
+  if (images.value.length) { videoPickerHint.value = '视频和图片不能同时发布，请先移除已选图片'; return; }
+  const input = videoInputRef.value;
+  if (!input) { videoPickerHint.value = '视频选择器暂不可用，请重新打开发布窗口'; return; }
+  showMore.value = false;
+  try { if (typeof input.showPicker === 'function') input.showPicker(); else input.click(); }
+  catch { input.click(); }
+}
 const uploadingImages = ref(false);
 const uploadedCount = ref(0);
 const submitting = ref(false);
@@ -189,11 +263,15 @@ const errorMessage = ref('');
 const showEmojiPanel = ref(false);
 const { recentEmojis, addRecent } = useRecentEmojis();
 const showTopicPanel = ref(false);
-const customTopic = ref('');
+const showMentionPanel = ref(false);
+const mentionQuery = ref('');
+const mentionTriggerStart = ref<number | null>(null);
+const mentionInsertOffset = ref(0);
+const topicQuery = ref('');
+const topicRefresh = ref(0);
+const topicTriggerStart = ref<number | null>(null);
 // 自定义话题输入框获得焦点后，仍按正文原来的光标位置插入话题。
 const topicInsertOffset = ref(0);
-const topics = ref<any[]>([]);
-const topicsLoading = ref(false);
 const previewMode = ref(false);
 const editLoading = ref(false);
 const editLoadError = ref('');
@@ -202,10 +280,85 @@ const messageInput = ref<HTMLDivElement | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 let restoringDraft = false;
 let openRevision = 0;
+const draftId = ref('');
+const draftList = ref<FullPublishDraft[]>([]);
+const showDrafts = ref(false);
+const savingDraft = ref(false);
+let draftAccount = '';
+let sessionIsEdit = false;
+let draftTimer: ReturnType<typeof setTimeout> | undefined;
+let saveRevision = 0;
+onBeforeUnmount(() => { finishImageDrag(); clearTimeout(draftTimer); ++openRevision; clearVideo(); });
+
+async function closePublish() {
+  if (submitting.value || processingMedia.value) return;
+  finishImageDrag();
+  try { await persistCurrentDraft(); appStore.closePublish(); }
+  catch (failure) { errorMessage.value = `保存草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+
+function draftSnapshot(): PublishDraftState {
+  return { text: message.value, images: images.value.map((image) => ({ ...image })), target: publishTarget.value ? JSON.parse(JSON.stringify(publishTarget.value)) : null, productOptions: { ...productOptions.value }, visibleStatus: visibleStatus.value, largeCover: largeCover.value, extraOptions: { ...extraOptions.value }, attachmentTitle: attachmentTitle.value, video: videoAttachment.value ? { ...videoAttachment.value } : undefined };
+}
+async function persistCurrentDraft() {
+  clearTimeout(draftTimer);
+  if (sessionIsEdit || !draftId.value || !draftAccount) return;
+  const request = ++saveRevision;
+  const uid = draftAccount;
+  const id = draftId.value;
+  const state = draftSnapshot();
+  savingDraft.value = true;
+  try {
+    if (state.text.trim() || state.images.length || state.video || state.target || state.extraOptions.extraUrl || state.extraOptions.dyhId || state.extraOptions.originalType || state.visibleStatus !== 1 || state.largeCover) await saveFullPublishDraft(uid, id, state);
+    else await deleteFullPublishDraft(uid, id);
+    if (uid === draftAccount) draftList.value = await listFullPublishDrafts(uid);
+  } finally { if (request === saveRevision) savingDraft.value = false; }
+}
+async function applyDraftState(state: PublishDraftState, id: string) {
+  restoringDraft = true;
+  clearTimeout(draftTimer);
+  draftId.value = id;
+  message.value = state.text;
+  images.value = state.images;
+  clearVideo(); videoAttachment.value = state.video;
+  publishTarget.value = state.target;
+  productOptions.value = state.productOptions;
+  visibleStatus.value = state.visibleStatus;
+  largeCover.value = state.largeCover;
+  extraOptions.value = state.extraOptions;
+  attachmentTitle.value = state.attachmentTitle;
+  showTopicPanel.value = false;
+  showMentionPanel.value = false;
+  previewMode.value = false;
+  await nextTick();
+  renderEditor();
+  restoringDraft = false;
+}
+async function switchDraft(draft: FullPublishDraft) {
+  try { await persistCurrentDraft(); await applyDraftState(await restoreFullPublishDraft(draft, draftAccount), draft.id); showDrafts.value = false; }
+  catch (failure) { errorMessage.value = `读取草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+async function newDraft() {
+  try {
+    await persistCurrentDraft();
+    await applyDraftState({ text: '', images: [], target: null, productOptions: {}, visibleStatus: 1, largeCover: false, extraOptions: {}, attachmentTitle: '' }, crypto.randomUUID());
+    showDrafts.value = false;
+  } catch (failure) { errorMessage.value = `保存草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
+async function removeDraft(id: string) {
+  try {
+    clearTimeout(draftTimer);
+    await deleteFullPublishDraft(draftAccount, id);
+    if (id === draftId.value) await applyDraftState({ text: '', images: [], target: null, productOptions: {}, visibleStatus: 1, largeCover: false, extraOptions: {}, attachmentTitle: '' }, crypto.randomUUID());
+    draftList.value = await listFullPublishDrafts(draftAccount);
+  } catch (failure) { errorMessage.value = `删除草稿失败：${failure instanceof Error ? failure.message : String(failure)}`; }
+}
 
 function currentDraftAccount(): string {
-  return String(authStore.user?.uid || 'guest');
+  return appStore.isPublishOpen && draftAccount ? draftAccount : String(authStore.user?.uid || 'guest');
 }
+// 账号切换时先保存原账号草稿再退出编辑，避免草稿和发布凭据跨账号混用。
+watch(() => authStore.user?.uid, () => { if (appStore.isPublishOpen && draftAccount !== String(authStore.user?.uid || 'guest')) void closePublish(); });
 
 const previewHtml = computed(() => {
   // 预览统一走安全化渲染（先 sanitize 再渲染酷安表情），
@@ -217,14 +370,30 @@ watch(() => appStore.isPublishOpen, async (open) => {
   const revision = ++openRevision;
   if (open) {
     restoringDraft = true;
+    draftAccount = String(authStore.user?.uid || 'guest');
+    sessionIsEdit = isEditMode.value;
+    draftId.value = crypto.randomUUID();
+    showDrafts.value = false;
+    showVisibility.value = false;
+    showMore.value = false;
+    videoPickerHint.value = '';
+    clearTimeout(draftTimer);
     message.value = '';
-    images.value = [];
-    uploadingImages.value = false;
+    publishTarget.value = null;
+    visibleStatus.value = 1;
+    largeCover.value = false;
+    extraOptions.value = { originalType: 0, extraUrl: '', dyhId: '' };
+    attachmentTitle.value = '';
+    images.value = []; clearVideo();
+    uploadingImages.value = false; uploadingVideo.value = false;
     errorMessage.value = '';
     previewMode.value = false;
     showEmojiPanel.value = false;
     showTopicPanel.value = false;
-    customTopic.value = '';
+    showMentionPanel.value = false;
+    mentionTriggerStart.value = null;
+    topicQuery.value = '';
+    topicTriggerStart.value = null;
     editLoadError.value = '';
     if (appStore.editFeedTarget) {
       editLoading.value = true;
@@ -259,23 +428,24 @@ watch(() => appStore.isPublishOpen, async (open) => {
         if (revision === openRevision) editLoading.value = false;
       }
     } else {
-      const draft = await loadPublishDraft(currentDraftAccount());
-      if (revision !== openRevision || !appStore.isPublishOpen) return;
-      message.value = draft;
+      try {
+        draftList.value = await listFullPublishDrafts(draftAccount);
+        if (revision !== openRevision || !appStore.isPublishOpen) return;
+        if (draftList.value[0]) await applyDraftState(await restoreFullPublishDraft(draftList.value[0], draftAccount), draftList.value[0].id);
+      } catch (failure) { editLoadError.value = `草稿读取失败：${failure instanceof Error ? failure.message : String(failure)}`; }
     }
     await nextTick();
     renderEditor();
     restoringDraft = false;
-    if (topics.value.length === 0 && !topicsLoading.value) {
-      fetchHotTopics();
-    }
     nextTick(() => messageInput.value?.focus());
   }
 });
 
-watch(message, (value) => {
-  if (!restoringDraft && !isEditMode.value) void savePublishDraft(currentDraftAccount(), value);
-});
+watch([message, images, videoAttachment, publishTarget, productOptions, visibleStatus, largeCover, extraOptions, attachmentTitle], () => {
+  if (restoringDraft || sessionIsEdit || !appStore.isPublishOpen) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => { void persistCurrentDraft().catch((failure) => { errorMessage.value = `保存草稿失败：${String(failure)}`; }); }, 600);
+}, { deep: true });
 
 watch(previewMode, async (preview) => {
   if (!preview) { await nextTick(); renderEditor(); }
@@ -333,8 +503,32 @@ function setEditorOffset(offset: number) {
 function renderEditor(caret?: number) {
   const editor = messageInput.value;
   if (!editor) return;
-  editor.innerHTML = renderCoolapkEmoji(escapeEditorText(message.value));
+  // 先按原始文本切分完整话题，再转义和渲染表情；保存、复制和发送仍使用纯文本。
+  let html = '', end = 0;
+  for (const topic of editorTopics(message.value)) {
+    html += renderCoolapkEmoji(escapeEditorText(message.value.slice(end, topic.index)));
+    html += `<span class="publish-topic">${renderCoolapkEmoji(escapeEditorText(topic.text))}</span>`;
+    end = topic.index + topic.text.length;
+  }
+  editor.innerHTML = html + renderCoolapkEmoji(escapeEditorText(message.value.slice(end)));
   if (caret !== undefined) setEditorOffset(caret);
+}
+
+function editorTopics(value: string) {
+  return Array.from(value.matchAll(/#[^#\r\n]+#/g)).filter((match) => match[0].slice(1, -1).trim()).map((match) => ({ text: match[0], index: match.index! }));
+}
+
+// 只在话题结构变化时重绘，普通输入保留原 DOM；删除井号或在话题末尾输入时清除颜色继承。
+function topicHighlightChanged(editor: HTMLElement, value: string): boolean {
+  const topics = editorTopics(value);
+  const spans = Array.from(editor.querySelectorAll('.publish-topic'));
+  if (topics.length !== spans.length) return true;
+  return spans.some((span, index) => {
+    const before = document.createRange();
+    before.selectNodeContents(editor);
+    before.setEndBefore(span);
+    return editorText(span) !== topics[index].text || editorText(before.cloneContents()).length !== topics[index].index;
+  });
 }
 
 function emojiCount(value: string): number {
@@ -352,7 +546,7 @@ function syncEditor() {
     return;
   }
   message.value = value;
-  if (editor.querySelectorAll('img.coolapk-emoji').length !== emojiCount(value)) renderEditor(caret);
+  if (editor.querySelectorAll('img.coolapk-emoji').length !== emojiCount(value) || topicHighlightChanged(editor, value)) renderEditor(caret);
 }
 
 function handleEditorInput(event: InputEvent) {
@@ -360,6 +554,28 @@ function handleEditorInput(event: InputEvent) {
   if (!editor || event.currentTarget !== editor) return;
   if (event.isComposing) { message.value = editorText(editor); return; }
   syncEditor();
+  // 输入未闭合的话题时自动打开选择器；粘贴整段文字不触发选择。
+  if (event.inputType === 'insertText') {
+    const offset = editorOffset();
+    const fragment = message.value.slice(0, offset).match(/(?:^|[\s])#([^#\n]{0,80})$/);
+    if (fragment) {
+      topicTriggerStart.value = offset - fragment[1].length - 1;
+      topicInsertOffset.value = offset;
+      topicQuery.value = fragment[1];
+      showTopicPanel.value = true;
+      showEmojiPanel.value = false;
+      showMentionPanel.value = false;
+    } else if (topicTriggerStart.value !== null) { showTopicPanel.value = false; topicTriggerStart.value = null; }
+    const mention = message.value.slice(0, offset).match(/(?:^|[\s])@([^@\s]{0,40})$/);
+    if (mention) {
+      mentionTriggerStart.value = offset - mention[1].length - 1;
+      mentionInsertOffset.value = offset;
+      mentionQuery.value = mention[1];
+      showMentionPanel.value = true;
+      showTopicPanel.value = false;
+      showEmojiPanel.value = false;
+    } else if (mentionTriggerStart.value !== null) { showMentionPanel.value = false; mentionTriggerStart.value = null; }
+  }
 }
 
 function insertAtCursor(text: string, offset?: number) {
@@ -409,63 +625,57 @@ function insertEmoji(name: string) {
   insertAtCursor(`[${name}]`);
 }
 
-function getTopicTitle(t: any): string {
-  if (!t) return '';
-  if (typeof t === 'string') return t;
-  const raw = t.title || t.tag || t.name || t.entityTitle || t.topic_title || t.targetTitle || t.infoHtml || '';
-  if (typeof raw === 'string') {
-    const title = raw.trim();
-    return title.startsWith('#') && title.endsWith('#') ? title.slice(1, -1).trim() : title;
-  }
-  return '';
-}
-
-function insertTopic(title: string) {
-  // 只去掉话题格式两侧的井号，保留 C# 等名称内部的井号。
-  const raw = String(title || '').trim();
-  const clean = raw.startsWith('#') && raw.endsWith('#') ? raw.slice(1, -1).trim() : raw.replace(/^#/, '').trim();
-  if (!clean) return;
-  insertAtCursor(`#${clean}#`, topicInsertOffset.value);
+function insertRecommendedTopic(title: string) {
+  insertAtCursor(`#${title}# `);
   topicInsertOffset.value = editorOffset();
 }
 
-function insertCustomTopic() {
-  if (!customTopic.value.trim()) return;
-  insertTopic(customTopic.value);
-  customTopic.value = '';
+function selectPublishTopic(topic: PublishTopic) {
+  topicRefresh.value++;
+  const start = topicTriggerStart.value;
+  if (start !== null) {
+    const end = topicInsertOffset.value;
+    message.value = message.value.slice(0, start) + message.value.slice(end);
+    renderEditor(start);
+  }
+  insertAtCursor(`#${topic.title}# `, start ?? topicInsertOffset.value);
+  showTopicPanel.value = false;
+  topicTriggerStart.value = null;
+  topicQuery.value = '';
 }
 
-function insertAtMention() {
-  insertAtCursor('@');
+async function insertAtMention() {
+  if (previewMode.value) { previewMode.value = false; await nextTick(); renderEditor(); }
+  mentionInsertOffset.value = editorOffset();
+  mentionTriggerStart.value = null;
+  mentionQuery.value = '';
+  showMentionPanel.value = !showMentionPanel.value;
+  if (showMentionPanel.value) { showTopicPanel.value = false; showEmojiPanel.value = false; }
+}
+
+function selectMentionUsers(users: MentionUser[]) {
+  const start = mentionTriggerStart.value;
+  if (start !== null) {
+    message.value = message.value.slice(0, start) + message.value.slice(mentionInsertOffset.value);
+    renderEditor(start);
+  }
+  insertAtCursor(users.map((user) => `@${user.username} `).join(''), start ?? mentionInsertOffset.value);
+  showMentionPanel.value = false;
+  mentionTriggerStart.value = null;
 }
 
 function toggleEmojiPanel() {
   showEmojiPanel.value = !showEmojiPanel.value;
-  if (showEmojiPanel.value) showTopicPanel.value = false;
+  if (showEmojiPanel.value) { showTopicPanel.value = false; showMentionPanel.value = false; }
 }
 
-function toggleTopicPanel() {
-  if (!showTopicPanel.value) topicInsertOffset.value = editorOffset();
+async function toggleTopicPanel() {
+  if (previewMode.value) { previewMode.value = false; await nextTick(); renderEditor(); }
+  topicInsertOffset.value = editorOffset();
+  topicTriggerStart.value = null;
+  topicQuery.value = '';
   showTopicPanel.value = !showTopicPanel.value;
-  if (showTopicPanel.value) {
-    showEmojiPanel.value = false;
-    fetchHotTopics();
-  }
-}
-
-async function fetchHotTopics() {
-  if (topicsLoading.value) return;
-  topicsLoading.value = true;
-  try {
-    const res = await CoolapkTauriAPI.getHotTopics();
-    if (res && res.data && Array.isArray(res.data)) {
-      topics.value = res.data.slice(0, 20);
-    }
-  } catch (err) {
-    console.warn('获取热门话题失败:', err);
-  } finally {
-    topicsLoading.value = false;
-  }
+  if (showTopicPanel.value) { showEmojiPanel.value = false; showMentionPanel.value = false; }
 }
 
 function triggerImageUpload() {
@@ -476,25 +686,97 @@ function triggerImageUpload() {
   imageInputRef.value?.click();
 }
 
-function handleImageSelected(e: Event) {
+async function handleVideoSelected(event: Event) {
+  const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
+  if (!file || submitting.value || processingMedia.value || images.value.length) return;
+  videoPickerHint.value = '';
+  const revision = openRevision; processingMedia.value = true; errorMessage.value = '';
+  try { const video = await preparePublishVideo(file); if (revision !== openRevision || !appStore.isPublishOpen) { URL.revokeObjectURL(video.preview); return; } clearVideo(); videoAttachment.value = video; showMore.value = false; }
+  catch (error) { errorMessage.value = error instanceof Error ? error.message : String(error); }
+  finally { processingMedia.value = false; }
+}
+
+async function handleImageSelected(e: Event) {
   const target = e.target as HTMLInputElement;
   const files = target.files ? Array.from(target.files) : [];
   target.value = '';
-  if (files.length === 0) return;
+  if (!files.length || submitting.value || processingMedia.value || videoAttachment.value) return;
+  videoPickerHint.value = '';
+  const revision = openRevision;
+  processingMedia.value = true;
   errorMessage.value = '';
+  try {
+  const companions = await originalLiveCompanions(files);
+  for (const image of images.value) { if (image.liveIdentifier && !image.liveVideo && companions.has(image.liveIdentifier)) { image.liveVideo = companions.get(image.liveIdentifier); image.url = undefined; } }
+  const photoFiles = files.filter(file => !/\.(mov|mp4)$/i.test(file.name));
   const remain = MAX_IMAGES - images.value.length;
-  if (files.length > remain) {
-    errorMessage.value = `最多只能添加 ${MAX_IMAGES} 张图片`;
+  if (photoFiles.length > remain) errorMessage.value = `最多只能添加 ${MAX_IMAGES} 张图片`;
+  // 顺序读取保证选择顺序，某张图片出错时保留其他可用图片。
+  for (const file of photoFiles.slice(0, remain)) {
+    try { const image = await preparePublishImage(file); if (image.liveIdentifier && !image.liveVideo) image.liveVideo = companions.get(image.liveIdentifier); if (revision === openRevision && appStore.isPublishOpen && images.value.length < MAX_IMAGES) images.value.push(image); }
+    catch (failure) { errorMessage.value = `${file.name}：${failure instanceof Error ? failure.message : String(failure)}`; }
   }
-  files.slice(0, remain).forEach((file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      images.value.push({ file, preview: String(reader.result) });
-    };
-    reader.readAsDataURL(file);
-  });
+  if (!photoFiles.length && !companions.size) errorMessage.value = '所选文件不是实况原片中的动态文件；普通视频请从更多 → 视频上传';
+  } catch (failure) { errorMessage.value = failure instanceof Error ? failure.message : String(failure); } finally { processingMedia.value = false; }
 }
 
+// 保持照片的 DOM 标识稳定，排序时不因下标变化而重建图片和实况选项。
+const imageDragKeys = new WeakMap<PublishImage, string>();
+let imageDragSerial = 0;
+function imageDragKey(image: PublishImage): string {
+  let key = imageDragKeys.get(image);
+  if (!key) { key = String(++imageDragSerial); imageDragKeys.set(image, key); }
+  return key;
+}
+let imageDrag: { pointerId: number; key: string; x: number; y: number; scroll: HTMLElement | null; scrollTop: number; slots: DOMRect[]; active: boolean } | null = null;
+// 用指针事件避开桌面窗口的系统文件拖放处理，实况原片始终随照片一起移动。
+function beginImageDrag(event: PointerEvent, index: number) {
+  if (event.button !== 0 || submitting.value || processingMedia.value || (event.target as HTMLElement).closest('button, select, input')) return;
+  const grid = (event.currentTarget as HTMLElement).closest<HTMLElement>('.publish-media-preview');
+  if (!grid) return;
+  finishImageDrag();
+  const scroll = grid.closest<HTMLElement>('.publish-compose-scroll');
+  imageDrag = { pointerId: event.pointerId, key: imageDragKey(images.value[index]), x: event.clientX, y: event.clientY, scroll, scrollTop: scroll?.scrollTop ?? 0, slots: Array.from(grid.querySelectorAll<HTMLElement>('.media-item')).map(item => item.getBoundingClientRect()), active: false };
+  event.preventDefault();
+  document.addEventListener('pointermove', moveImageDrag, { passive: false });
+  document.addEventListener('pointerup', endImageDrag);
+  document.addEventListener('pointercancel', endImageDrag);
+  window.addEventListener('blur', finishImageDrag);
+}
+function moveImageDrag(event: PointerEvent) {
+  const drag = imageDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (submitting.value) { finishImageDrag(); return; }
+  if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+  drag.active = true;
+  event.preventDefault();
+  const from = images.value.findIndex(image => imageDragKey(image) === drag.key);
+  const scrollDelta = (drag.scroll?.scrollTop ?? drag.scrollTop) - drag.scrollTop;
+  const pointerY = event.clientY + scrollDelta;
+  let to = drag.slots.findIndex(slot => event.clientX >= slot.left && event.clientX <= slot.right && pointerY >= slot.top && pointerY <= slot.bottom);
+  if (to < 0 && drag.slots.length) to = drag.slots.reduce((closest, slot, slotIndex) => {
+    const distance = Math.hypot(event.clientX - (slot.left + slot.right) / 2, pointerY - (slot.top + slot.bottom) / 2);
+    const closestSlot = drag.slots[closest];
+    return distance < Math.hypot(event.clientX - (closestSlot.left + closestSlot.right) / 2, pointerY - (closestSlot.top + closestSlot.bottom) / 2) ? slotIndex : closest;
+  }, 0);
+  if (from >= 0 && to >= 0 && from !== to) images.value = movePublishImage(images.value, from, to);
+  dragImageIndex.value = images.value.findIndex(image => imageDragKey(image) === drag.key);
+  // 窗口较小时靠近编辑区边缘滚动，继续拖动时能看到下面的图片。
+  if (drag.scroll) {
+    const bounds = drag.scroll.getBoundingClientRect();
+    if (event.clientY < bounds.top + 28) drag.scroll.scrollTop -= 16;
+    else if (event.clientY > bounds.bottom - 28) drag.scroll.scrollTop += 16;
+  }
+}
+function endImageDrag(event: PointerEvent) { if (event.pointerId === imageDrag?.pointerId) finishImageDrag(); }
+function finishImageDrag() {
+  imageDrag = null;
+  dragImageIndex.value = -1;
+  document.removeEventListener('pointermove', moveImageDrag);
+  document.removeEventListener('pointerup', endImageDrag);
+  document.removeEventListener('pointercancel', endImageDrag);
+  window.removeEventListener('blur', finishImageDrag);
+}
 function resolveUploadedUrl(data: any): string {
   let url = '';
   if (typeof data === 'string') {
@@ -511,6 +793,7 @@ function resolveUploadedUrl(data: any): string {
 function removeImage(index: number) {
   if (submitting.value) return;
   images.value.splice(index, 1);
+  if (!images.value.length) videoPickerHint.value = '';
 }
 
 function buildFinalMessage(): string {
@@ -527,7 +810,14 @@ function buildFinalMessage(): string {
 }
 
 async function handlePublish() {
-  if ((!message.value.trim() && images.value.length === 0) || submitting.value || editLoading.value || editLoadError.value) return;
+  if ((!message.value.trim() && images.value.length === 0 && !videoAttachment.value) || submitting.value || processingMedia.value || editLoading.value || editLoadError.value) return;
+  if (images.value.some(image => image.liveEnabled && !image.liveVideo)) { errorMessage.value = '实况照片缺少原始动态文件，请同时选择原片及对应 MOV，或选择仅静态照片'; return; }
+  if (draftAccount !== String(authStore.user?.uid || 'guest')) { errorMessage.value = '账号已切换，请重新打开发帖页'; return; }
+
+  if (!isEditMode.value) {
+    const validation = validateProductPublish(publishTarget.value, productOptions.value, images.value.length);
+    if (validation) { errorMessage.value = validation; return; }
+  }
 
   const proceedPublish = async () => {
     submitting.value = true;
@@ -536,15 +826,25 @@ async function handlePublish() {
     errorMessage.value = '';
     try {
       let pic = '';
+      if (videoAttachment.value && !videoAttachment.value.mediaUrl) {
+        uploadingVideo.value = true;
+        const video = videoAttachment.value;
+        const result = await CoolapkTauriAPI.uploadPublishVideo(new Uint8Array(await video.file.arrayBuffer()), video.file.name, new Uint8Array(await video.cover.arrayBuffer()), video.duration);
+        if (!result?.data?.mediaUrl || !result?.data?.mediaInfo) throw new Error(result?.message || '视频上传未返回结果');
+        video.mediaUrl = result.data.mediaUrl; video.mediaInfo = result.data.mediaInfo;
+        uploadingVideo.value = false;
+      }
       if (images.value.length > 0) {
         const urls: string[] = [];
         for (const img of images.value) {
-          if (img.url && !img.file) { urls.push(img.url); continue; }
+          if (img.url) { urls.push(img.url); continue; }
           if (img.file) {
             const bytes = new Uint8Array(await img.file.arrayBuffer());
             const contentType = img.file.type || 'image/jpeg';
-            const res = await CoolapkTauriAPI.uploadImage(bytes, img.file.name, contentType, 'feed');
-            urls.push(resolveUploadedUrl(res?.data));
+            const video = img.liveEnabled && img.liveVideo ? new Uint8Array(await img.liveVideo.arrayBuffer()) : undefined;
+            const res = await CoolapkTauriAPI.uploadImage(bytes, img.file.name, contentType, 'feed', undefined, video, img.hdr || 0);
+            img.url = resolveUploadedUrl(res?.data);
+            urls.push(img.url);
             uploadedCount.value += 1;
           }
         }
@@ -552,11 +852,9 @@ async function handlePublish() {
       }
 
       const executeCreate = async (postToken?: string) => {
+        if (draftAccount !== String(authStore.user?.uid || 'guest')) throw new Error('账号已切换，已停止发布');
         if (appStore.editFeedTarget) return await CoolapkTauriAPI.updateFeed(String(appStore.editFeedTarget.id), buildFinalMessage(), pic, postToken);
-        if (postToken) {
-          return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken);
-        }
-        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined);
+        return await CoolapkTauriAPI.createFeed(buildFinalMessage(), pic || undefined, postToken, { targetType: publishTarget.value?.type || '', targetId: publishTarget.value?.id || '', visibleStatus: visibleStatus.value, largeCover: largeCover.value && !['3', '4'].includes(productOptions.value.subTypeId || ''), ...productOptions.value, ...extraOptions.value, ...(videoAttachment.value ? { mediaUrl: videoAttachment.value.mediaUrl, mediaInfo: videoAttachment.value.mediaInfo } : {}) });
       };
 
       let res: any;
@@ -607,10 +905,12 @@ async function handlePublish() {
           const updatedPictures = pic ? pic.split(',') : [];
           Object.assign(appStore.editFeedTarget, { message: buildFinalMessage(), messageRawInput: buildFinalMessage(), message_raw_output: buildFinalMessage(), pics: updatedPictures, picArr: updatedPictures, imageUriList: updatedPictures, pic, isModified: 1 });
         } else {
-          await clearPublishDraft(currentDraftAccount());
+          clearTimeout(draftTimer);
+          await deleteFullPublishDraft(draftAccount, draftId.value);
+          draftId.value = '';
         }
         message.value = '';
-        images.value = [];
+        images.value = []; clearVideo();
         // 给用户明确反馈后延迟关闭
         errorMessage.value = '';
         const successTip = document.createElement('div');
@@ -629,7 +929,7 @@ async function handlePublish() {
       // 失败时保持弹窗打开并聚焦输入框，便于用户修改重试
       nextTick(() => messageInput.value?.focus());
     } finally {
-      uploadingImages.value = false;
+      uploadingImages.value = false; uploadingVideo.value = false;
       submitting.value = false;
     }
   };
@@ -644,6 +944,14 @@ async function handlePublish() {
 </script>
 
 <style scoped>
+.publish-visibility { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-size-sub); }
+.publish-visibility select { padding: 6px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-control); }
+
+.draft-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: var(--font-size-caption); color: var(--text-secondary); }
+.draft-tools button, .draft-list button { color: var(--brand-primary); }
+.draft-list { max-height: 180px; overflow: auto; padding: 8px; border: 1px solid var(--border); margin-bottom: 10px; }
+.draft-list > div { display: flex; justify-content: space-between; gap: 10px; margin: 8px 0; }
+
 .publish-container {
   display: flex;
   flex-direction: column;
@@ -676,6 +984,8 @@ async function handlePublish() {
   vertical-align: middle;
 }
 
+.publish-textarea :deep(.publish-topic) { color: var(--brand-primary); }
+
 .preview-box {
   min-height: 140px;
   max-height: 220px;
@@ -700,6 +1010,10 @@ async function handlePublish() {
   margin-top: var(--space-3);
   flex-wrap: wrap;
 }
+
+.media-item { width: 90px; display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-caption); }
+.media-controls { display: flex; gap: 6px; color: var(--brand-primary); }
+.media-controls button:disabled { opacity: .4; }
 
 .media-thumb {
   position: relative;
@@ -927,5 +1241,108 @@ async function handlePublish() {
     opacity: 1;
     transform: translate(-50%, 0);
   }
+}
+</style>
+
+<style scoped>
+.publish-back { width: 32px; height: 32px; color: var(--text-primary); }
+.publish-title { flex: 1; font-size: 16px; font-weight: 600; margin: 0 12px; }
+.header-drafts { color: var(--text-secondary); font-size: 13px; }
+.mobile-publish { display: none; }
+.publish-settings { margin-top: 12px; }
+.publish-visibility { margin: 0; font-size: 14px; color: var(--text-primary); }
+.draft-list { border: 0; max-height: none; padding: 0; }
+.draft-card { display: flex; align-items: center; border-bottom: 1px solid var(--border-light); padding: 14px 0; }
+.draft-open { flex: 1; min-width: 0; text-align: left; display: grid; gap: 8px; }
+.draft-title { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-meta { color: var(--text-tertiary); font-size: 12px; }
+.draft-delete { color: var(--text-tertiary); padding: 12px; }
+.media-thumb { width: 100%; height: auto; aspect-ratio: 1; }
+.media-item { width: 110px; }
+@media (max-width: 600px) {
+  .mobile-publish { display: inline-flex; margin-left: 14px; }
+  .publish-textarea { min-height: 240px; max-height: none; font-size: 16px; }
+  .publish-media-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .media-item { width: 100%; }
+  .toolbar-tools { flex: 1; justify-content: space-around; gap: 0; flex-wrap: nowrap; }
+  .tool-btn { font-size: 0; width: 40px; height: 44px; justify-content: center; }
+  .tool-btn i { font-size: 22px; }
+  .word-count { font-size: 10px; }
+  .publish-toolbar { margin-top: 16px; padding-top: 0; }
+}
+</style>
+
+<style scoped>
+.publish-container { flex: 1 1 0; min-height: 0; min-width: 0; }
+/* fieldset 保留原生禁用行为，内部独立分配正文与底部栏的高度，避免被媒体撑开。 */
+.publish-fields { display: block; flex: 1 1 0; height: 100%; min-height: 0; min-width: 0; border: 0; padding: 0; margin: 0; }
+.publish-fields-layout { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.publish-compose-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.publish-target-area { margin-bottom: 16px; }
+.publish-bottom-area { flex-shrink: 0; padding-top: 12px; }
+.publish-toolbar { margin-top: 8px; }
+.mobile-tool, .mobile-preview { display: none; }
+.publish-toolbar { flex-wrap: wrap; gap: 12px; }
+.toolbar-tools { flex: 1; gap: 4px; flex-wrap: nowrap; }
+.tool-btn { width: 40px; height: 40px; justify-content: center; }
+.tool-btn span:not(.publish-icon) { display: none; }
+.publish-visibility { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: var(--text-tertiary); font-size: 12px; white-space: nowrap; }
+.publish-settings:has(.publish-extras) { margin-top: 8px; }
+.publish-more-grid { display: grid; grid-template-columns: repeat(auto-fit, 74px); justify-content: space-around; gap: 16px; padding: 16px; margin-top: 8px; max-height: min(180px, 25dvh); overflow-y: auto; background: var(--background); }
+.publish-more-grid > button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0; font-size: 14px; color: var(--text-secondary); }
+.publish-more-grid > button:disabled { cursor: not-allowed; opacity: .45; }
+.publish-more-hint { grid-column: 1 / -1; margin: 0; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+.more-icon { display: grid; place-items: center; width: 64px; height: 64px; background: var(--surface); border-radius: 16px; font-size: 28px; }
+.more-icon .publish-icon { width: 32px; height: 32px; }
+.publish-more-grid > button:hover .more-icon { color: var(--brand-primary); background: var(--brand-soft); }
+.publish-media-area { position: relative; width: 100%; }
+.publish-cover-mode { position: relative; display: grid; grid-template-columns: 72px 72px; width: 152px; height: 34px; padding: 2px; margin: 0 auto 8px; border: 1px solid var(--border-light); border-radius: 999px; background: var(--background); }
+.publish-cover-mode-indicator { position: absolute; top: 2px; left: 2px; width: 72px; height: 28px; border-radius: 999px; background: var(--brand-soft, rgba(16, 185, 129, .12)); box-shadow: 0 1px 3px rgb(0 0 0 / 16%); transition: transform 180ms ease; }
+.publish-cover-mode-indicator.is-large-cover { transform: translateX(76px); }
+.publish-cover-mode > button { position: relative; z-index: 1; width: 72px; height: 28px; border-radius: 999px; color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: color 120ms ease; }
+.publish-cover-mode > button.is-selected { color: var(--brand-primary); font-weight: 600; }
+.publish-cover-mode > button:disabled { cursor: not-allowed; }
+.publish-media-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.publish-media-preview.large-cover-mode { display: flex; flex-wrap: nowrap; align-items: flex-start; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 4px 2px 10px; scroll-snap-type: x proximity; }
+.publish-media-preview.large-cover-mode > .media-item { flex: 0 0 clamp(148px, 34vw, 220px); width: clamp(148px, 34vw, 220px); scroll-snap-align: start; }
+.media-item { width: 100%; min-width: 0; cursor: grab; }
+.media-item:active { cursor: grabbing; }
+.publish-image-move { transition: transform 130ms ease-out; }
+.media-item.is-dragging { position: relative; z-index: 1; opacity: .82; outline: 2px solid var(--brand-primary); border-radius: 8px; }
+.media-item.is-dragging .media-thumb { transform: scale(.96); box-shadow: 0 8px 20px rgb(0 0 0 / 18%); }
+.media-thumb { width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 8px; }
+.media-thumb { touch-action: none; user-select: none; transition: transform 120ms ease, box-shadow 120ms ease; }
+.media-thumb :deep(img) { width: 100%; height: 100%; object-fit: cover; }
+.live-photo-mode { display: block; margin-top: 4px; }
+.live-photo-mode select { max-width: 100%; border: 0; background: transparent; color: var(--brand-primary); font-size: 12px; }
+.live-photo-missing { display: block; font-size: 11px; color: var(--text-tertiary); }
+.publish-image-limit-tip { display: flex; align-items: center; gap: 5px; margin: 4px 16px 8px; color: var(--danger); font-size: var(--font-size-caption); }
+.publish-video-preview { position: relative; max-width: 420px; margin-top: 16px; }
+.publish-video-preview video { display: block; width: 100%; max-height: 280px; border-radius: 8px; background: #111; }
+.publish-video-preview > button { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; color: white; background: rgb(0 0 0 / 55%); border-radius: 50%; }
+.publish-video-preview p { margin-top: 8px; color: var(--text-tertiary); font-size: 12px; }
+@media (max-width: 600px) {
+  .publish-title { font-size: 20px; font-weight: 400; color: var(--text-secondary); }
+  .publish-back { width: 40px; height: 52px; display: grid; place-items: center; }
+  .header-drafts { display: none; }
+  .mobile-preview { display: block; min-width: 64px; height: 32px; color: var(--brand-primary); font-size: 14px; }
+  .mobile-publish { min-width: 64px; height: 32px; margin: 0 8px 0 0; padding: 0; background: transparent; color: var(--brand-primary); box-shadow: none; font-size: 14px; }
+  .mobile-publish:disabled { background: transparent; color: var(--text-tertiary); opacity: 1; }
+  .publish-target-area { margin-bottom: 0; }
+  .publish-textarea { padding: 16px; min-height: 160px; max-height: none; }
+  .publish-media-area { margin: 0 16px; width: calc(100% - 32px); }
+  .publish-media-preview { width: 100%; }
+  .publish-video-preview { margin: 0 16px; }
+  .publish-settings { margin: 0 16px; }
+  .publish-bottom-area { padding: 0; border-top: .5px solid var(--border-light); }
+  .publish-bottom-area :deep(.recommendations) { padding: 0 16px; margin: 4px 0; }
+  .publish-toolbar { padding: 0; margin: 0; }
+  .toolbar-tools { gap: 0; width: 100%; }
+  .tool-btn { flex: 1; min-width: 0; width: auto; height: 40px; }
+  .tool-btn span:not(.publish-icon), .desktop-preview, .word-count { display: none; }
+  .publish-toolbar { gap: 0; }
+  .publish-visibility { margin: 0 16px 8px auto; }
+  .mobile-tool { display: flex; }
+  .emoji-panel { margin: 0; border: 0; border-radius: 0; }
 }
 </style>

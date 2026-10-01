@@ -33,9 +33,15 @@ https://coolapk.example.com:88 → Lucky → http://203.0.113.10:18966 → 容�
 
 在网页输入应用访问密码。密码保存在新测试安装目录 `/opt/coolapk-docker/.env` 的 `COOLAPK_ACCESS_PASSWORD` 中；这是网页访问密码，与酷安账号 Cookie 分开管理。验证后浏览器保存访问会话，日常打开网页可继续使用。
 
-酷安 Cookie 由用户在网页登录界面自行导入。本轮测试没有代用户导入真实 Cookie，账号登录、切换以及点赞、评论、收藏、私信等已登录业务尚未作为验收项测试。
+酷安 Cookie 由用户在网页登录界面自行导入。1.27.6 回归经用户授权，使用现有有效账号验证了动态、点赞、评论、收藏、转发及私密收藏夹，并清理新增测试内容；受限制及未覆盖项见 [完整回归记录](./docker-full-test-2026-10-01.md)。
 
 公开浏览也可能被酷安要求进行人工验证。出现官方验证码弹窗时由用户手动完成；关闭或加载失败时页面给出错误提示，可以重试。
+
+## 项目更新
+
+项目仓库为 [lcmovie/coolapk-docker](https://github.com/lcmovie/coolapk-docker)，更新提示查询其 [Releases](https://github.com/lcmovie/coolapk-docker/releases)。网页不会下载或安装桌面版程序包。仓库尚无 Release 时提示未发布；API 请求失败会显示检查失败。
+
+更新源代码后，在安装目录执行 `docker compose up -d --build`。保留 `.env` 和整个 `data/`；升级前备份这两项以及当前镜像。CDN 上传暂存和任务记录也位于持久化目录，删除任务或清空历史时清理对应暂存文件。
 
 ## Docker Compose 启动
 

@@ -1,6 +1,89 @@
 use super::*;
 
 #[test]
+fn generic_cdn_upload_uses_known_mime_types_and_keeps_unknown_extensions_uploadable() {
+    assert_eq!(cdn_content_type("package.ZIP"), "application/zip");
+    assert_eq!(cdn_content_type("notes.txt"), "text/plain");
+    assert_eq!(cdn_content_type("report.pdf"), "application/pdf");
+    assert_eq!(cdn_content_type("movie.mov"), "video/quicktime");
+    assert_eq!(cdn_content_type("archive.XZ"), "application/x-xz");
+    assert_eq!(cdn_content_type("disk.iso"), "application/x-iso9660-image");
+    assert_eq!(cdn_content_type("unknown.custom"), "application/octet-stream");
+}
+
+#[test]
+fn test_publish_extras_apk_fields() {
+    let options: PublishOptions = serde_json::from_value(json!({"originalType":2,"dyhId":"9","extraUrl":"/goods/detail?id=8"})).unwrap();
+    let mut form = build_create_feed_form("正文", None, None);
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("original_type", "2".to_string())));
+    assert!(form.contains(&("dyhId", "9".to_string())));
+    assert!(form.contains(&("extra_url", "/goods/detail?id=8".to_string())));
+    let invalid: PublishOptions = serde_json::from_value(json!({"originalType":4})).unwrap();
+    assert!(apply_publish_options(&mut form, &invalid).is_err());
+}
+
+#[test]
+fn test_publish_live_photo_upload_files() {
+    let (files, video_name) = build_publish_upload_files(b"cover", "photo.jpg", Some(b"video"), 1);
+    let entries: Value = serde_json::from_str(&files).unwrap();
+    assert_eq!(entries.as_array().unwrap().len(), 2);
+    assert_eq!(entries[0]["livePhoto"], 1);
+    assert_eq!(entries[0]["hdr"], 1);
+    assert_eq!(entries[0]["livePhotoVideo"], entries[1]["name"]);
+    assert_eq!(entries[1]["name"].as_str(), video_name.as_deref());
+    let (static_files, name) = build_publish_upload_files(b"cover", "photo.jpg", None, 0);
+    let entries: Value = serde_json::from_str(&static_files).unwrap();
+    assert_eq!(entries.as_array().unwrap().len(), 1);
+    assert!(entries[0].get("livePhoto").is_none());
+    assert!(name.is_none());
+    let options: PublishOptions = serde_json::from_value(json!({"largeCover":true})).unwrap();
+    let mut form = build_create_feed_form("正文", None, None);
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("is_html_article", "2".to_string())));
+}
+
+#[test]
+fn test_publish_visibility_maps_to_publish_status() {
+    for (visible, expected) in [(1, "0"), (-1, "1")] {
+        let options: PublishOptions = serde_json::from_value(json!({"visibleStatus":visible})).unwrap();
+        let mut form = build_create_feed_form("正文", None, None);
+        apply_publish_options(&mut form, &options).unwrap();
+        assert!(form.contains(&("publish_status", expected.to_string())));
+        assert!(form.contains(&("status", "1".to_string())));
+    }
+    let options: PublishOptions = serde_json::from_value(json!({"visibleStatus":0})).unwrap();
+    assert!(apply_publish_options(&mut build_create_feed_form("正文", None, None), &options).is_err());
+}
+
+#[test]
+fn test_publish_product_subdata_validation() {
+    for (sub_type, data) in [("1", "8.5"), ("2", "{\"antutu_score\":1200000}"), ("5", "4"), ("6", "{\"final_price\":2999,\"config_id\":123,\"config_name\":\"标准版\"}")] {
+        let options: PublishOptions = serde_json::from_value(json!({"targetType":"product_phone","targetId":"321","subTypeId":sub_type,"subData":data})).unwrap();
+        let mut form = build_create_feed_form("正文", None, None);
+        apply_publish_options(&mut form, &options).unwrap();
+        assert!(form.contains(&("tsubid", sub_type.to_string())));
+        assert!(form.contains(&("tsubdata", data.to_string())));
+    }
+    for (sub_type, data) in [("1", "NaN"), ("2", "{}"), ("5", "6"), ("6", "{\"final_price\":100}"), ("3", "")] {
+        let options: PublishOptions = serde_json::from_value(json!({"targetType":"product_phone","targetId":"321","subTypeId":sub_type,"subData":data})).unwrap();
+        assert!(apply_publish_options(&mut build_create_feed_form("正文", None, None), &options).is_err());
+    }
+}
+
+#[test]
+fn test_publish_target_matches_apk_form() {
+    let mut form = build_create_feed_form("正文", None, None);
+    let options: PublishOptions = serde_json::from_value(json!({"targetType":"apk","targetId":"123"})).unwrap();
+    apply_publish_options(&mut form, &options).unwrap();
+    assert!(form.contains(&("type", "comment".to_string())));
+    assert!(form.contains(&("targetType", "apk".to_string())));
+    assert!(form.contains(&("targetId", "123".to_string())));
+    let invalid: PublishOptions = serde_json::from_value(json!({"targetType":"tag"})).unwrap();
+    assert!(apply_publish_options(&mut form, &invalid).is_err());
+}
+
+#[test]
 fn test_search_response_filters_sponsor_entities_recursively() {
     let raw = serde_json::json!({
         "data": [{
@@ -957,6 +1040,151 @@ async fn test_login_cookie_persistence_flow() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 未通过服务端校验的暂存 Cookie 不应在账户库留下空凭据幽灵账号：
+/// set_user_cookie 会触发 sync_device_code → account_device_code，
+/// 旧实现会为未知 uid 写入 { cookie: "" } 条目，导致“已保存账户”里的账号点登录报“该账户凭据为空”。
+#[tokio::test]
+async fn test_staged_cookie_does_not_create_credential_less_account() {
+    use std::path::PathBuf;
+
+    let dir = std::env::temp_dir().join(format!(
+        "coolapk_desktop_phantom_account_test_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let accounts_file: PathBuf = dir.join("accounts.json");
+
+    let client = CoolapkClient::new();
+    client.persist_cookie_to(dir.join("session_cookie.txt"));
+
+    // 模拟 iOS 登录链路：校验前先暂存 WebView Cookie（服务端校验随后失败）
+    client
+        .set_user_cookie("SESSID=staged-only; uid=4441808".to_string())
+        .unwrap();
+
+    // 设备码仍应可用，但不得产生任何账户条目
+    assert!(
+        client.effective_custom_device_id().is_none(),
+        "该用例不应带自定义设备 ID"
+    );
+    let accounts = client.load_accounts();
+    assert!(
+        accounts.is_empty(),
+        "暂存 Cookie 不得写入账户库，实际得到 {accounts:?}"
+    );
+    let exists = accounts_file.exists();
+    if exists {
+        let root: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&accounts_file).unwrap()).unwrap();
+        assert_eq!(
+            root["accounts"].as_array().map(|a| a.len()),
+            Some(0),
+            "账户库不应含空凭据条目"
+        );
+    }
+
+    // 正常保存账户后，设备码仍写入该账户记录（原有行为保留）
+    client
+        .save_account("4441808", "酷友", "", "SESSID=real-session; uid=4441808")
+        .await
+        .unwrap();
+    let accounts = client.load_accounts();
+    assert_eq!(accounts.len(), 1, "真实登录应恰好写入一个账户");
+    assert_eq!(accounts[0]["uid"].as_str(), Some("4441808"));
+    assert!(
+        !accounts[0]["cookie"].as_str().unwrap_or("").is_empty(),
+        "已保存账户必须带有效凭据"
+    );
+    assert!(
+        accounts[0]["deviceCode"].as_str().is_some_and(|c| !c.is_empty()),
+        "账户存在时仍应记录设备码"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// HTTP 客户端必须能成功初始化 TLS 后端：
+/// 捕获 rustls 多 provider 冲突、use_preconfigured_tls 版本不匹配、
+/// 以及 Apple 平台系统信任库配置失败等问题。
+#[test]
+fn test_http_client_builder_initializes_tls_backend() {
+    let client = http_client_builder().build();
+    assert!(
+        client.is_ok(),
+        "HTTP 客户端应能初始化 TLS 后端：{:?}",
+        client.err()
+    );
+
+    // 带默认头与重定向策略的组合也必须可用（登录/API 主客户端走这条路径）
+    let configured = http_client_builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build();
+    assert!(
+        configured.is_ok(),
+        "带重定向策略的客户端应能初始化：{:?}",
+        configured.err()
+    );
+}
+
+/// 传输失败原因链用于定位真因（DNS / 证书 / 代理），且不得泄露请求 URL。
+#[test]
+fn test_transport_cause_chain_reports_root_source() {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct Root;
+    #[derive(Debug)]
+    struct Middle(Root);
+    #[derive(Debug)]
+    struct Outer(Middle);
+
+    impl fmt::Display for Root {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "invalid peer certificate: UnknownIssuer")
+        }
+    }
+    impl fmt::Display for Middle {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "tls handshake failed")
+        }
+    }
+    impl fmt::Display for Outer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "error sending request")
+        }
+    }
+    impl Error for Root {}
+    impl Error for Middle {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    impl Error for Outer {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    let chain = error_cause_chain(&Outer(Middle(Root)));
+    assert!(
+        chain.contains("UnknownIssuer"),
+        "应透出最深层根因：{chain}"
+    );
+    assert!(
+        chain.contains(" <- "),
+        "多层 source 应以箭头连接：{chain}"
+    );
+    assert!(
+        !chain.contains("http") && !chain.contains("coolapk"),
+        "原因链不应包含 URL：{chain}"
+    );
+
+    // 无 source 时返回固定占位，避免日志出现空字段
+    assert_eq!(error_cause_chain(&Root), "none");
 }
 
 /// 网页外壳噪音剔除 + 正文提取：酷安 /feed/ 分享页只有导航/页脚/扫码提示，

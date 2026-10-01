@@ -5,12 +5,14 @@
     </Transition>
     <Transition name="scale-dialog">
       <div v-if="isOpen" class="dialog-wrapper">
-        <div class="dialog-container" :style="{ width: `${width}px` }">
+        <div class="dialog-container" :class="dialogClass" :style="{ width: `${width}px` }">
           <div v-if="title" class="dialog-header">
+            <slot name="header">
             <h3 class="dialog-title">{{ title }}</h3>
             <button class="dialog-close" aria-label="关闭" @click="close">
               <i class="fas fa-times"></i>
             </button>
+            </slot>
           </div>
           <div class="dialog-body custom-scrollbar">
             <slot></slot>
@@ -32,6 +34,7 @@ const props = withDefaults(
   defineProps<{
     isOpen: boolean;
     title?: string;
+    dialogClass?: string;
     width?: number;
     closeOnBackdrop?: boolean;
   }>(),
@@ -106,7 +109,8 @@ onUnmounted(unbindGlobalListeners);
   display: flex;
   flex-direction: column;
   max-width: calc(100vw - 32px);
-  max-height: 85vh;
+  /* 软键盘弹出时 85vh 仍然按布局视口算，这里再按可视高度夹一次。 */
+  max-height: min(85vh, calc(var(--app-viewport-height, 100vh) - 32px));
   overflow: hidden;
 }
 
@@ -139,6 +143,15 @@ onUnmounted(unbindGlobalListeners);
 .dialog-close:hover {
   background-color: var(--surface-hover);
   color: var(--text-primary);
+}
+
+/* 触摸端关闭按钮是唯一的可见出口，抬到 44x44 命中区。 */
+@media (pointer: coarse) {
+  .dialog-close {
+    width: 44px;
+    height: 44px;
+    margin-right: -6px;
+  }
 }
 
 .dialog-body {

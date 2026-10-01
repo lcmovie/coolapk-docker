@@ -116,6 +116,12 @@ describe('native browser attachment clicks', () => {
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('keeps ordinary protocol-relative external links inside the upstream policy, rich-text=%s', (richText) => {
+    const anchor = link('//example.com/article', false);
+    expect(click(anchor, richText)).toBe(true);
+    expect(mocks.openUrl).toHaveBeenCalledExactlyOnceWith(richText ? '//example.com/article' : anchor.href, 'internal');
+  });
+
   it('keeps normal Coolapk content routing when there is no download attribute', () => {
     expect(click(link('/feed/12345', false), true)).toBe(true);
     expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/feed/12345');

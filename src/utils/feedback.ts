@@ -1,5 +1,5 @@
 import { APP_VERSION } from '../constants/version';
-import { APP_DISPLAY_NAME, SUPPORT_GITHUB_URL } from '../constants/app';
+import { APP_DISPLAY_NAME, PROJECT_ISSUES_URL } from '../constants/app';
 import { CoolapkTauriAPI } from '../api/coolapk';
 
 // 仅用于兼容旧私信链接中的原作者昵称，不再作为反馈收件人。
@@ -10,7 +10,14 @@ export function getFeedbackTemplate(): string {
   let osName = 'Windows';
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent;
-    if (ua.includes('Macintosh') || ua.includes('Mac OS')) {
+    // Android UA 同时包含 Linux，必须先识别 Android。
+    if (/android/i.test(ua)) {
+      osName = 'Android';
+    } else if (/iphone|ipad|ipod/i.test(ua)
+      || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) {
+      // iOS UA 包含 Mac OS；iPad 桌面模式会使用 Macintosh UA。
+      osName = 'iOS';
+    } else if (ua.includes('Macintosh') || ua.includes('Mac OS')) {
       osName = 'macOS';
     } else if (ua.includes('Linux')) {
       osName = 'Linux';
@@ -27,5 +34,10 @@ export function getFeedbackTemplate(): string {
 }
 
 export function openFeedbackPage() {
-  return CoolapkTauriAPI.openUrl(SUPPORT_GITHUB_URL, 'system');
+  return CoolapkTauriAPI.openUrl(PROJECT_ISSUES_URL, 'system');
+}
+
+/** Compatibility entry point; feedback opens this project's Issues without sending private messages. */
+export function openFeedbackMessage(_router?: unknown, _authStore?: unknown) {
+  return openFeedbackPage();
 }

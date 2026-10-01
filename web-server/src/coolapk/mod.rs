@@ -3,3 +3,5 @@
 pub mod auth;
 #[path = "client_generated.rs"]
 pub mod client;
+#[path = "../../../src-tauri/src/coolapk/video_upload.rs"]
+pub mod video_upload;

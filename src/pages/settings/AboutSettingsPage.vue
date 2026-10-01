@@ -34,12 +34,12 @@
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">社区数据</span>
-          <span class="row-sub">Stars · Forks · Issues</span>
+          <span class="row-sub">{{ statsStatus }}</span>
         </div>
         <div class="repo-stats">
-          <span class="repo-stat" title="Stars"><i class="fas fa-star"></i> 0</span>
-          <span class="repo-stat" title="Forks"><i class="fas fa-code-branch"></i> 0</span>
-          <span class="repo-stat" title="Issues"><i class="fas fa-exclamation-circle"></i> 0</span>
+          <span class="repo-stat" title="Stars"><i class="fas fa-star"></i> {{ stats?.stars ?? '—' }}</span>
+          <span class="repo-stat" title="Forks"><i class="fas fa-code-branch"></i> {{ stats?.forks ?? '—' }}</span>
+          <span class="repo-stat" title="Issues"><i class="fas fa-exclamation-circle"></i> {{ stats?.issues ?? '—' }}</span>
         </div>
       </div>
 
@@ -58,7 +58,7 @@
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">一键反馈</span>
-          <span class="row-sub">通过维护者的 GitHub 主页反馈 Bug 或建议</span>
+          <span class="row-sub">在本项目 GitHub Issues 提交 Bug 或建议</span>
         </div>
         <AppButton variant="primary" size="sm" icon="fas fa-comment-dots" @click="handleFeedback">
           GitHub 反馈
@@ -67,16 +67,16 @@
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">项目主页</span>
-          <span class="row-sub">维护者 GitHub 主页 · 项目与源码</span>
+          <span class="row-sub">lcmovie/coolapk-docker · 源码与 Releases</span>
         </div>
-        <AppIconButton icon="fas fa-arrow-up-right-from-square" size="sm" title="打开项目主页" @click="open(SUPPORT_GITHUB_URL)" />
+        <AppIconButton icon="fas fa-arrow-up-right-from-square" size="sm" title="打开项目主页" @click="open(PROJECT_GITHUB_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">GitHub 反馈</span>
-          <span class="row-sub">查看维护者项目，提出问题或功能建议</span>
+          <span class="row-sub">本项目 Issues · 问题或功能建议</span>
         </div>
-        <AppIconButton icon="fas fa-bug" size="sm" title="打开反馈页面" @click="open(SUPPORT_GITHUB_URL)" />
+        <AppIconButton icon="fas fa-bug" size="sm" title="打开反馈页面" @click="open(PROJECT_ISSUES_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
@@ -90,7 +90,7 @@
           <span class="row-label">部署支持</span>
           <span class="row-sub">通过 GitHub 联系，附上部署方式与报错信息</span>
         </div>
-        <AppIconButton icon="fab fa-github" size="sm" title="打开支持主页" @click="open(SUPPORT_GITHUB_URL)" />
+        <AppIconButton icon="fab fa-github" size="sm" title="打开支持主页" @click="open(PROJECT_ISSUES_URL)" />
       </div>
       <div class="setting-row">
         <div class="row-info">
@@ -105,24 +105,47 @@
     <div class="setting-group feedback-guide-group">
       <h4 class="group-title"><i class="fas fa-info-circle"></i> 对原作者的感谢及本项目修改信息</h4>
       <div class="guide-content">
+
         <p class="guide-item"><strong>感谢原作者：</strong>感谢 daimiaopeng 提供 coolapk-desktop 原项目。本版本基于原项目改造，保留 MIT 开源协议与原作者署名。</p>
         <p class="guide-item"><strong>原生网页呈现：</strong>将原桌面版内容以原生网页呈现，沿用原界面布局与尺寸，并支持不同分辨率下的内容居中显示。</p>
         <p class="guide-item"><strong>Docker 与持久化：</strong>支持 Docker / Compose 部署；账号 Cookie 与相关配置持久化保存在 Docker 安装目录，重启后可继续使用。</p>
+
       </div>
     </div>
 
-    <p class="copyright">© 2026 daimiaopeng · MIT License</p>
+    <p class="copyright">© 2026 daimiaopeng · Docker 改造维护 lcmovie · MIT License</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { fetchProjectCommunityStats, type ProjectCommunityStats } from '../../utils/projectCommunity';
 import { APP_VERSION } from '../../constants/version';
-import { APP_DISPLAY_NAME, SUPPORT_GITHUB_URL } from '../../constants/app';
+import { APP_DISPLAY_NAME, SUPPORT_GITHUB_URL, PROJECT_GITHUB_URL, PROJECT_ISSUES_URL } from '../../constants/app';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
 import AppButton from '../../components/common/AppButton.vue';
 import AppIconButton from '../../components/common/AppIconButton.vue';
 import { openFeedbackPage } from '../../utils/feedback';
+
+const stats = ref<ProjectCommunityStats | null>(null);
+const statsError = ref(false);
+const statsController = new AbortController();
+const statsStatus = computed(() => stats.value
+  ? 'lcmovie/coolapk-docker · GitHub API'
+  : statsError.value ? 'GitHub 数据暂不可用' : '正在读取本项目 GitHub 数据');
+onMounted(async () => {
+  const timer = setTimeout(() => statsController.abort(), 10000);
+  try {
+    stats.value = await fetchProjectCommunityStats(statsController.signal);
+  } catch {
+    if (!statsController.signal.aborted || !unmounted) statsError.value = true;
+  } finally {
+    clearTimeout(timer);
+  }
+});
+let unmounted = false;
+onBeforeUnmount(() => { unmounted = true; statsController.abort(); });
 
 const appVersion = APP_VERSION;
 const settingsStore = useSettingsStore();

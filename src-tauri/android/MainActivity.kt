@@ -10,14 +10,32 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.View
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Android WebView 的 CSS safe-area 可能为 0，原生预留系统栏及刘海区域。
+        val content = findViewById<View>(android.R.id.content)
+        val safeAreaTypes = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+            val bars = insets.getInsets(safeAreaTypes)
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // 已由父容器预留，避免 WebView 再次添加安全区；保留键盘等其他 inset。
+            WindowInsetsCompat.Builder(insets)
+                .setInsets(safeAreaTypes, Insets.NONE)
+                .setInsetsIgnoringVisibility(safeAreaTypes, Insets.NONE)
+                .build()
+        }
+        ViewCompat.requestApplyInsets(content)
     }
 
     private fun updateFile(path: String): File {
@@ -54,6 +72,8 @@ class MainActivity : TauriActivity() {
         return uri
     }
 
+    // Rust 通过 JNI 按名称调用，Release 混淆时必须保留方法名称和实现。
+    @Keep
     fun publishUpdateApk(path: String): String = try {
         val file = updateFile(path)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -83,6 +103,8 @@ class MainActivity : TauriActivity() {
         "error:${error.message ?: error.javaClass.simpleName}"
     }
 
+    // 待安装包恢复也由 JNI 调用，不能被当作未使用的方法裁剪。
+    @Keep
     fun isUpdatePackageAvailable(location: String): String = try {
         if (location.startsWith("content://")) updateUri(location) else updateFile(location)
         "available"
@@ -90,6 +112,8 @@ class MainActivity : TauriActivity() {
         "missing"
     }
 
+    // 保留系统安装器入口，避免下载成功后因方法被混淆而无法安装。
+    @Keep
     fun launchUpdateInstaller(location: String): String = try {
         val uri = if (location.startsWith("content://")) {
             updateUri(location)

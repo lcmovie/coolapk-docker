@@ -1,8 +1,10 @@
 use crate::coolapk::client::{CoolapkClient, DeviceProfile};
 use crate::download_manager::{DownloadControl, DownloadManager};
+use crate::diagnostics::{login_checkpoint, LoginStage};
 use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD}};
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +15,7 @@ pub struct AppState {
     pub client: CoolapkClient,
     pub downloads: DownloadManager,
     pub login_session: Mutex<Option<std::sync::Arc<LoginSession>>>,
+    pub cdn_uploads: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
 }
 
 #[derive(Default)]
@@ -25,12 +28,68 @@ pub struct LoginSession {
 struct LoginVerification {
     attempted_access_callback: Option<String>,
     completed: bool,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_fingerprint: Option<String>,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_attempts: u8,
+    #[cfg(any(target_os = "ios", test))]
+    ios_cookie_next_retry: Option<Instant>,
 }
 
 impl LoginVerification {
     fn should_exchange(&self, callback: &str, has_session: bool) -> bool {
         has_session && self.attempted_access_callback.as_deref() != Some(callback)
     }
+
+    /// 没有 Cookie 的等待不计次数；同一会话失败四次后暂停十秒，登录后仍可继续同步。
+    #[cfg(any(target_os = "ios", test))]
+    fn should_verify_ios_cookie(&mut self, cookie: &str, callback: Option<&str>) -> bool {
+        let mut pairs = cookie.split(';').map(str::trim).collect::<Vec<_>>();
+        pairs.sort_unstable();
+        let fingerprint = format!("{:x}", Md5::digest(format!("{}\n{}", pairs.join(";"), callback.unwrap_or_default()).as_bytes()));
+        if self.ios_cookie_fingerprint.as_deref() != Some(fingerprint.as_str()) {
+            self.ios_cookie_fingerprint = Some(fingerprint);
+            self.ios_cookie_attempts = 0;
+            self.ios_cookie_next_retry = None;
+        }
+        if self.ios_cookie_attempts >= 4 {
+            if self.ios_cookie_next_retry.is_some_and(|at| Instant::now() < at) { return false; }
+            self.ios_cookie_attempts = 0;
+        }
+        self.ios_cookie_attempts += 1;
+        if self.ios_cookie_attempts == 4 { self.ios_cookie_next_retry = Some(Instant::now() + Duration::from_secs(10)); }
+        true
+    }
+}
+
+/// iOS 官方页面可能在原 URL 内完成短信登录，不依赖网页是否发生跳转。
+#[cfg(any(target_os = "ios", test))]
+fn should_poll_ios_login_cookies(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" { return false; }
+    match url.host_str() {
+        Some("account.coolapk.com") => matches!(url.path().trim_end_matches('/'), "/auth/login" | "/auth/callback"),
+        Some("www.coolapk.com" | "m.coolapk.com" | "coolapk.com") => true,
+        _ => false,
+    }
+}
+
+/// 返回按钮只使用固定导航标记，官方远程页面仍不具备 IPC 权限。
+#[cfg(any(target_os = "ios", test))]
+fn is_ios_login_return_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "coolapk-login" && url.host_str() == Some("return") && matches!(url.path(), "" | "/") && url.username().is_empty() && url.password().is_none() && url.port().is_none() && url.query().is_none() && url.fragment().is_none()
+}
+
+/// 按域名优先级合并 Cookie，account 域覆盖其他子域的同名旧值。
+#[cfg(any(target_os = "ios", test))]
+fn merge_ios_login_cookies(mut cookies: Vec<(String, String, String)>) -> String {
+    cookies.retain(|(domain, name, value)| is_coolapk_cookie_domain(domain) && (name != "SESSID" || CoolapkClient::has_valid_session_cookie(&format!("SESSID={value}"))));
+    cookies.sort_by_key(|(domain, name, value)| {
+        let domain = domain.trim_start_matches('.').to_ascii_lowercase();
+        let priority = match domain.as_str() { "account.coolapk.com" => 3, "coolapk.com" => 2, _ => 1 };
+        (priority, domain, name.clone(), value.clone())
+    });
+    let header = cookies.into_iter().map(|(_, name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ");
+    merge_cookie_headers(None, Some(&header)).unwrap_or_default()
 }
 
 static IMAGE_SAVE_LOCK: Mutex<()> = Mutex::new(());
@@ -935,6 +994,17 @@ pub async fn search_feed_topics(
     state.client.search_feed_topics(&query, page).await
 }
 
+// 发帖搜索使用独立接口，避免改变发现页的话题搜索行为。
+#[tauri::command]
+pub async fn search_publish_topics(state: State<'_, AppState>, query: String, page: u32, recent_ids: String) -> Result<Value, String> {
+    state.client.search_publish_topics(&query, page, &recent_ids).await
+}
+
+#[tauri::command]
+pub async fn get_product_versions(state: State<'_, AppState>, product_id: String) -> Result<Value, String> {
+    state.client.get_product_versions(&product_id).await
+}
+
 #[tauri::command]
 pub async fn get_product_detail_by_name(
     state: State<'_, AppState>,
@@ -1452,17 +1522,297 @@ pub async fn upload_image(
     content_type: String,
     dir: String,
     to_uid: Option<String>,
+    live_video_bytes: Option<Vec<u8>>,
+    hdr: Option<u32>,
 ) -> Result<Value, String> {
     state
         .client
-        .upload_image(
+        .upload_image_with_live(
             &image_bytes,
             &file_name,
             &content_type,
             &dir,
             to_uid.as_deref(),
+            live_video_bytes.as_deref(),
+            hdr.unwrap_or(0),
         )
         .await
+}
+
+fn emit_cdn_upload_progress(
+    app: &tauri::AppHandle,
+    task_id: &str,
+    attempt: u32,
+    file_name: &str,
+    status: &str,
+    uploaded: u64,
+    total: u64,
+    speed: u64,
+    url: Option<&str>,
+    error: Option<&str>,
+) {
+    let _ = app.emit(
+        "cdn-upload-progress",
+        json!({
+            "taskId": task_id,
+            "attempt": attempt,
+            "fileName": file_name,
+            "status": status,
+            "uploaded": uploaded,
+            "total": total,
+            // Bytes per second, measured between emitted progress samples.
+            "speed": speed,
+            "url": url,
+            "error": error,
+        }),
+    );
+}
+
+#[derive(Clone, Copy)]
+struct CdnUploadProgressSample {
+    last_emit_at: Instant,
+    last_emitted_bytes: u64,
+    current_bytes: u64,
+    current_total: u64,
+    current_speed: u64,
+}
+
+async fn wait_cdn_upload_or_cancel<F>(
+    upload: F,
+    cancel_receiver: &mut tokio::sync::watch::Receiver<bool>,
+) -> Option<F::Output>
+where
+    F: std::future::Future,
+{
+    tokio::pin!(upload);
+    tokio::select! {
+        biased;
+        result = &mut upload => Some(result),
+        _ = cancel_receiver.changed() => None,
+    }
+}
+
+#[cfg(test)]
+mod cdn_upload_cancel_tests {
+    use super::wait_cdn_upload_or_cancel;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    struct DropSignal(Arc<AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_drops_the_active_upload_future() {
+        let (sender, mut receiver) = tokio::sync::watch::channel(false);
+        let was_dropped = Arc::new(AtomicBool::new(false));
+        let upload_drop_signal = DropSignal(was_dropped.clone());
+        let upload = async move {
+            let _drop_signal = upload_drop_signal;
+            std::future::pending::<()>().await;
+        };
+        let task = tokio::spawn(async move {
+            wait_cdn_upload_or_cancel(upload, &mut receiver).await
+        });
+
+        sender.send_replace(true);
+
+        assert_eq!(task.await.unwrap(), None);
+        assert!(was_dropped.load(Ordering::SeqCst));
+    }
+}
+
+#[tauri::command]
+pub async fn upload_file_to_cdn(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    task_id: String,
+    attempt: u32,
+    file_path: String,
+) -> Result<Value, String> {
+    let path = PathBuf::from(file_path);
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "未知文件".to_string());
+
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
+    {
+        let Ok(mut uploads) = state.cdn_uploads.lock() else {
+            return Err("无法访问上传任务列表".to_string());
+        };
+        if uploads.contains_key(&task_id) {
+            return Err("上传任务 ID 已存在".to_string());
+        }
+        uploads.insert(task_id.clone(), cancel_sender.clone());
+    }
+
+    // 将工作放进异步块，确保无论哪条路径结束，外层都会移除活动任务记录。
+    let outcome = async {
+        let metadata = match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                let error = "请选择一个普通文件".to_string();
+                emit_cdn_upload_progress(
+                    &app, &task_id, attempt, &file_name, "failed", 0, 0, 0, None, Some(&error),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                let error = format!("读取文件信息失败：{error}");
+                emit_cdn_upload_progress(
+                    &app, &task_id, attempt, &file_name, "failed", 0, 0, 0, None, Some(&error),
+                );
+                return Err(error);
+            }
+        };
+        let total = metadata.len();
+
+        emit_cdn_upload_progress(
+            &app, &task_id, attempt, &file_name, "preparing", 0, total, 0, None, None,
+        );
+
+        let progress_state = std::sync::Arc::new(Mutex::new(CdnUploadProgressSample {
+            last_emit_at: Instant::now(),
+            last_emitted_bytes: 0,
+            current_bytes: 0,
+            current_total: total,
+            current_speed: 0,
+        }));
+        let progress_app = app.clone();
+        let progress_task_id = task_id.clone();
+        let progress_file_name = file_name.clone();
+        let callback_state = progress_state.clone();
+        let upload = state
+            .client
+            .upload_file_with_progress(&path, move |uploaded, reported_total| {
+                let now = Instant::now();
+                let Ok(mut previous) = callback_state.lock() else {
+                    return;
+                };
+                previous.current_bytes = uploaded;
+                previous.current_total = reported_total;
+                let elapsed = now.duration_since(previous.last_emit_at);
+                if elapsed < Duration::from_millis(200) && uploaded < reported_total {
+                    return;
+                }
+                let speed = if elapsed.is_zero() {
+                    0
+                } else {
+                    (uploaded.saturating_sub(previous.last_emitted_bytes) as f64
+                        / elapsed.as_secs_f64())
+                        .round()
+                        .min(u64::MAX as f64) as u64
+                };
+                previous.last_emit_at = now;
+                previous.last_emitted_bytes = uploaded;
+                previous.current_speed = speed;
+                drop(previous);
+
+                emit_cdn_upload_progress(
+                    &progress_app,
+                    &progress_task_id,
+                    attempt,
+                    &progress_file_name,
+                    "uploading",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    None,
+                );
+            });
+        let upload_result = wait_cdn_upload_or_cancel(upload, &mut cancel_receiver).await;
+
+        match upload_result {
+            None => {
+                let (uploaded, reported_total, speed) = progress_state
+                    .lock()
+                    .map(|sample| {
+                        (sample.current_bytes, sample.current_total, sample.current_speed)
+                    })
+                    .unwrap_or((0, total, 0));
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "cancelled",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    None,
+                );
+                Ok(json!({ "code": 499, "status": "cancelled" }))
+            }
+            Some(Ok(response)) => {
+                let url = response
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "completed",
+                    total,
+                    total,
+                    0,
+                    (!url.is_empty()).then_some(url),
+                    None,
+                );
+                Ok(response)
+            }
+            Some(Err(error)) => {
+                let (uploaded, reported_total, speed) = progress_state
+                    .lock()
+                    .map(|sample| {
+                        (sample.current_bytes, sample.current_total, sample.current_speed)
+                    })
+                    .unwrap_or((0, total, 0));
+                emit_cdn_upload_progress(
+                    &app,
+                    &task_id,
+                    attempt,
+                    &file_name,
+                    "failed",
+                    uploaded,
+                    reported_total,
+                    speed,
+                    None,
+                    Some(&error),
+                );
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    if let Ok(mut uploads) = state.cdn_uploads.lock() {
+        uploads.remove(&task_id);
+    }
+    outcome
+}
+
+#[tauri::command]
+pub fn cancel_cdn_upload(state: State<'_, AppState>, task_id: String) -> bool {
+    let Ok(uploads) = state.cdn_uploads.lock() else {
+        return false;
+    };
+    let Some(cancel_sender) = uploads.get(&task_id) else {
+        return false;
+    };
+    cancel_sender.send_replace(true);
+    true
 }
 
 #[tauri::command]
@@ -1799,7 +2149,7 @@ async fn run_apk_download(
         return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
     }
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::coolapk::client::http_client_builder()
         .user_agent("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal")
         .redirect(reqwest::redirect::Policy::limited(10));
     if let Some(proxy) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
@@ -2180,10 +2530,11 @@ pub async fn create_feed(
     message: String,
     pic: Option<String>,
     post_token: Option<String>,
+    options: Option<crate::coolapk::client::PublishOptions>,
 ) -> Result<Value, String> {
     state
         .client
-        .create_feed(&message, pic.as_deref(), post_token.as_deref())
+        .create_feed_with_options(&message, pic.as_deref(), post_token.as_deref(), options.as_ref())
         .await
 }
 
@@ -2691,7 +3042,7 @@ pub async fn get_app_list(
 }
 
 #[tauri::command]
-pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Result<(), String> {
+pub async fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Result<(), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static BROWSER_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -2704,10 +3055,15 @@ pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Res
         return Err(format!("不支持的链接协议: {scheme}"));
     }
 
-    // mode: "system" 交给系统默认程序；非 http(s) 协议（如 mailto:）也必须走系统默认程序
+    // 非酷安域名直接交给系统浏览器，即使调用方传了 internal 也不创建应用内窗口。
     let system_mode = mode.as_deref() == Some("system");
-    if system_mode || (scheme != "http" && scheme != "https") {
-        return opener::open(&url).map_err(|e| e.to_string());
+    let coolapk_host = parsed.host_str().is_some_and(|host| {
+        host == "coolapk.com" || host.ends_with(".coolapk.com")
+    }) && parsed.username().is_empty() && parsed.password().is_none();
+    if system_mode || !coolapk_host || (scheme != "http" && scheme != "https") {
+        use tauri_plugin_opener::OpenerExt;
+        // 使用插件实例才能在移动端调用 Android Intent / iOS 原生接口。
+        return app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string());
     }
 
     // 应用本身即 WebView 浏览器：外部链接在新开窗口内浏览，不调起系统浏览器
@@ -2737,6 +3093,7 @@ pub fn open_url(app: tauri::AppHandle, url: String, mode: Option<String>) -> Res
 pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Emitter;
     use tauri::Manager;
+    login_checkpoint(LoginStage::CloseRequested);
     let close_result = if let Some(win) = app.get_webview_window("login_window") {
         #[cfg(target_os = "android")]
         {
@@ -2751,7 +3108,19 @@ pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
             })
             .map_err(|error| error.to_string())
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(target_os = "ios")]
+        {
+            // iOS 没有桌面关窗动画，先隐藏登录窗口，再恢复主窗口为前台窗口。
+            let result = win.hide().and_then(|_| win.close()).map_err(|error| error.to_string());
+            if result.is_ok() {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+            }
+            result
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             win.close().map_err(|error| error.to_string())
         }
@@ -2760,6 +3129,7 @@ pub fn close_login_window(app: tauri::AppHandle) -> Result<(), String> {
     };
     // 即使关窗请求失败，也通知主窗口检查已保存的登录态。
     log::info!("login.window_closed close_ok={}", close_result.is_ok());
+    if close_result.is_ok() { login_checkpoint(LoginStage::CloseCompleted); }
     let _ = app.emit("login-window-closed", ());
     close_result
 }
@@ -2868,6 +3238,7 @@ fn merge_cookie_headers(first: Option<&str>, second: Option<&str>) -> Option<Str
 
 /// 从登录 WebView 的 Cookie 存储读取酷安会话，包含 HttpOnly Cookie。
 async fn get_login_webview_cookie<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>) -> Result<String, String> {
+    login_checkpoint(LoginStage::CookieReadStarted);
     // 在 WebView 线程直接访问系统 CookieManager，不依赖 Activity 或生成类中的自定义方法。
     #[cfg(target_os = "android")]
     {
@@ -2931,11 +3302,11 @@ async fn get_login_webview_cookie<R: tauri::Runtime>(win: &tauri::WebviewWindow<
             let cookies: *mut AnyObject = msg_send![store, httpCookieStore];
             let sender = Mutex::new(Some(sender));
             let completion = block2::RcBlock::new(move |values: std::ptr::NonNull<NSArray<NSHTTPCookie>>| {
-                let header = values.as_ref().iter()
-                    .filter(|cookie| is_coolapk_cookie_domain(&cookie.domain().to_string()))
-                    .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-                    .collect::<Vec<_>>().join("; ");
+                let header = merge_ios_login_cookies(values.as_ref().iter()
+                    .map(|cookie| (cookie.domain().to_string(), cookie.name().to_string(), cookie.value().to_string()))
+                    .collect());
                 if let Some(sender) = sender.lock().ok().and_then(|mut value| value.take()) {
+                    login_checkpoint(LoginStage::CookieReadCompleted);
                     let _ = sender.send(header);
                 }
             });
@@ -3043,7 +3414,10 @@ async fn verify_login_webview(
     app: &tauri::AppHandle,
     win: &tauri::WebviewWindow,
     session: &LoginSession,
+    automatic: bool,
 ) -> Result<bool, String> {
+    #[cfg(not(target_os = "ios"))]
+    let _ = automatic;
     let mut verification = session.verification.lock().await;
     if verification.completed {
         return Ok(true);
@@ -3070,6 +3444,10 @@ async fn verify_login_webview(
     let has_session = cookie.as_deref().is_some_and(CoolapkClient::has_valid_session_cookie);
     if !has_session {
         log::info!("login.cookie_not_ready");
+        return Ok(false);
+    }
+    #[cfg(target_os = "ios")]
+    if automatic && !verification.should_verify_ios_cookie(cookie.as_deref().unwrap_or_default(), callback.as_deref()) {
         return Ok(false);
     }
     let state = app.state::<AppState>();
@@ -3116,33 +3494,28 @@ pub async fn sync_login_webview(app: tauri::AppHandle) -> Result<bool, String> {
         return Ok(false);
     };
     log::info!("login.manual_sync_started");
-    verify_login_webview(&app, &win, &session).await
+    verify_login_webview(&app, &win, &session, false).await
 }
 
 #[cfg(target_os = "ios")]
 fn apply_login_safe_area(win: &tauri::WebviewWindow) -> Result<(), String> {
-    use objc2::{msg_send, runtime::AnyObject};
+    use objc2::{msg_send, rc::Retained, runtime::AnyObject};
     win.with_webview(|webview| unsafe {
-        // 将整个官方页面限制在原生安全区内，网页的 fixed 提示也不会覆盖状态栏。
+        login_checkpoint(LoginStage::SafeAreaStarted);
+        // Wry 使用 frame 和自动缩放管理 WebView，保持它的布局方式，避免额外约束影响窗口创建。
         let view = &*(webview.inner() as *const AnyObject);
-        let parent: *mut AnyObject = msg_send![view, superview];
-        if parent.is_null() {
-            return;
-        }
-        let _: () = msg_send![view, setTranslatesAutoresizingMaskIntoConstraints: false];
-        let guide: *mut AnyObject = msg_send![parent, safeAreaLayoutGuide];
-        for selector in [objc2::sel!(topAnchor), objc2::sel!(bottomAnchor), objc2::sel!(leadingAnchor), objc2::sel!(trailingAnchor)] {
-            let anchor: *mut AnyObject = msg_send![view, performSelector: selector];
-            let safe_anchor: *mut AnyObject = msg_send![guide, performSelector: selector];
-            let constraint: *mut AnyObject = msg_send![anchor, constraintEqualToAnchor: safe_anchor];
-            let _: () = msg_send![constraint, setActive: true];
-        }
+        let scroll_view: Retained<AnyObject> = msg_send![view, scrollView];
+        // UIScrollViewContentInsetAdjustmentAlways = 3，由 UIKit 随安全区变化调整正文边距。
+        let _: () = msg_send![&scroll_view, setContentInsetAdjustmentBehavior: 3isize];
+        log::info!("login.safe_area_applied platform=ios mode=scroll_insets");
+        login_checkpoint(LoginStage::SafeAreaCompleted);
     }).map_err(|_| "设置 iOS 登录安全区失败".to_string())
 }
 
 #[tauri::command]
 pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
+    login_checkpoint(LoginStage::OpenRequested);
 
     if let Some(win) = app.get_webview_window("login_window") {
         let _ = win.set_focus();
@@ -3207,12 +3580,17 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
         })();
     "#
     .replace("__APP_ORIGIN__", &app_origin);
+    #[cfg(target_os = "ios")]
+    let js_script = format!("{js_script}\n{}", include_str!("ios-login-controls.js"));
 
     // 授权回调通常会立即 302 到 forward 页面，定时读取 win.url() 可能完全看不到它。
     // 在 WebView 导航发生时同步捕获回调 URL，再交给异步任务兑换授权码。
     let session = std::sync::Arc::new(LoginSession::default());
     let navigation_session = session.clone();
     let navigation_app_origin = app_origin.clone();
+    #[cfg(target_os = "ios")]
+    let navigation_app = app.clone();
+    login_checkpoint(LoginStage::WindowBuildStarted);
     let login_window = tauri::WebviewWindowBuilder::new(
         &app,
         "login_window",
@@ -3221,6 +3599,27 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     .title("酷安官方授权登录")
     .inner_size(440.0, 620.0)
     .on_navigation(move |url| {
+        #[cfg(target_os = "ios")]
+        if is_ios_login_return_url(url) {
+            let app = navigation_app.clone();
+            let session = navigation_session.clone();
+            tauri::async_runtime::spawn(async move {
+                let current = app.state::<AppState>().login_session.lock().ok().and_then(|value| value.clone());
+                if !current.as_ref().is_some_and(|value| std::sync::Arc::ptr_eq(value, &session)) { return; }
+                if let Some(win) = app.get_webview_window("login_window") {
+                    log::info!("login.ios_return_requested");
+                    // 退出登录页不恢复旧会话；其他页面返回前先同步，用户无需杀掉应用。
+                    let can_sync = win.url().ok().is_some_and(|url| should_poll_ios_login_cookies(&url));
+                    if can_sync { let _ = verify_login_webview(&app, &win, &session, false).await; }
+                    // 同步期间可能重新打开登录窗口，旧返回任务不能关闭新会话。
+                    let current = app.state::<AppState>().login_session.lock().ok().and_then(|value| value.clone());
+                    if current.as_ref().is_some_and(|value| std::sync::Arc::ptr_eq(value, &session)) && app.get_webview_window("login_window").is_some() {
+                        let _ = close_login_window(app);
+                    }
+                }
+            });
+            return false;
+        }
         if login_callback_kind(url, &navigation_app_origin).is_some()
             && extract_access_code_from_url(url.as_str()).is_some()
         {
@@ -3243,6 +3642,7 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
     .initialization_script(js_script)
     .build()
     .map_err(|e| e.to_string())?;
+    login_checkpoint(LoginStage::WindowBuildCompleted);
 
     #[cfg(target_os = "ios")]
     if apply_login_safe_area(&window).is_err() {
@@ -3291,17 +3691,22 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
             }
             let on_landing = url.scheme() == "https"
                 && matches!(url.host_str(), Some("www.coolapk.com" | "m.coolapk.com" | "coolapk.com"));
-            if (callback.is_some() || on_landing) && attempts < 4
+            #[cfg(target_os = "ios")]
+            let ios_cookie_poll = callback.is_some() || should_poll_ios_login_cookies(&url);
+            #[cfg(not(target_os = "ios"))]
+            let ios_cookie_poll = false;
+            // iOS 等待会话写入期间持续轮询，账号校验由会话指纹和失败后的冷却时间限频。
+            if (callback.is_some() || on_landing || ios_cookie_poll) && (attempts < 4 || ios_cookie_poll)
                 && last_attempt.is_none_or(|at| at.elapsed() >= Duration::from_secs(2))
             {
                 attempts += 1;
                 last_attempt = Some(Instant::now());
                 log::info!("login.callback_attempt number={attempts}");
-                match verify_login_webview(&app_handle, &win, &session).await {
+                match verify_login_webview(&app_handle, &win, &session, true).await {
                     Ok(true) => break,
                     _ => log::warn!("login.callback_unverified"),
                 }
-                if attempts == 4 {
+                if attempts == 4 && !ios_cookie_poll {
                     log::warn!("login.callback_retry_exhausted");
                 }
             }
@@ -3317,6 +3722,63 @@ mod login_callback_tests {
         extract_access_code_from_url, extract_callback_param, extract_ck_from_url,
         login_callback_kind, login_failure_kind, LOGIN_WEBVIEW_USER_AGENT,
     };
+
+    #[test]
+    fn ios_waits_for_sms_login_on_account_page_but_not_logout_or_untrusted_pages() {
+        for url in ["https://account.coolapk.com/auth/login", "https://account.coolapk.com/auth/login/?type=coolapk", "https://account.coolapk.com/auth/callback", "https://www.coolapk.com/"] {
+            assert!(super::should_poll_ios_login_cookies(&reqwest::Url::parse(url).unwrap()));
+        }
+        for url in ["https://account.coolapk.com/auth/logout", "https://account.coolapk.com/other", "http://account.coolapk.com/auth/login", "https://account.coolapk.com.evil.test/auth/login"] {
+            assert!(!super::should_poll_ios_login_cookies(&reqwest::Url::parse(url).unwrap()));
+        }
+    }
+
+    #[test]
+    fn ios_limits_same_cookie_verification_but_retries_new_sessions_and_callbacks() {
+        let mut verification = super::LoginVerification::default();
+        for _ in 0..4 { assert!(verification.should_verify_ios_cookie("SESSID=one; uid=12", None)); }
+        assert!(!verification.should_verify_ios_cookie("uid=12; SESSID=one", None));
+        assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", None));
+        for _ in 0..3 { assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", None)); }
+        assert!(!verification.should_verify_ios_cookie("SESSID=two; uid=12", None));
+        assert!(verification.should_verify_ios_cookie("SESSID=two; uid=12", Some("new-callback")));
+    }
+
+    #[test]
+    fn ios_resumes_verification_after_cooldown_even_if_login_keeps_the_same_cookie() {
+        let mut verification = super::LoginVerification::default();
+        for _ in 0..4 { assert!(verification.should_verify_ios_cookie("SESSID=unchanged", None)); }
+        assert!(!verification.should_verify_ios_cookie("SESSID=unchanged", None));
+        // 短信登录完成后 Cookie 可能不变，冷却结束必须重新校验，不能永久停掉自动同步。
+        verification.ios_cookie_next_retry = Some(std::time::Instant::now());
+        assert!(verification.should_verify_ios_cookie("SESSID=unchanged", None));
+        assert_eq!(verification.ios_cookie_attempts, 1);
+    }
+
+    #[test]
+    fn ios_cookie_merge_prefers_account_session_and_ignores_expired_or_unrelated_values() {
+        let cookies = vec![
+            ("account.coolapk.com", "SESSID", "account"),
+            ("www.coolapk.com", "SESSID", "web-old"),
+            (".coolapk.com", "SESSID", "root-old"),
+            (".coolapk.com", "uid", "12"),
+            ("account.coolapk.com", "SESSID", "deleted"),
+            ("evil.test", "token", "unrelated"),
+        ].into_iter().map(|(domain, name, value)| (domain.to_string(), name.to_string(), value.to_string())).collect();
+        let header = super::merge_ios_login_cookies(cookies);
+        assert_eq!(header.matches("SESSID=").count(), 1);
+        assert!(header.contains("SESSID=account"));
+        assert!(header.contains("uid=12"));
+        assert!(!header.contains("unrelated"));
+    }
+
+    #[test]
+    fn ios_return_navigation_only_accepts_the_fixed_marker() {
+        assert!(super::is_ios_login_return_url(&reqwest::Url::parse("coolapk-login://return").unwrap()));
+        for url in ["https://return/", "coolapk-login://return/other", "coolapk-login://return?cookie=secret", "coolapk-login://other", "coolapk-login://user@return"] {
+            assert!(!super::is_ios_login_return_url(&reqwest::Url::parse(url).unwrap()));
+        }
+    }
 
     #[test]
     fn missing_cookie_does_not_consume_access_code_exchange() {
@@ -3472,7 +3934,7 @@ pub async fn download_update(
     let path = dir.join(unique_name);
     let partial_path = path.with_extension(format!("{extension}.part"));
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::coolapk::client::http_client_builder()
         .user_agent("coolapk-desktop-updater")
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let host = attempt.url().host_str().unwrap_or_default().to_ascii_lowercase();
@@ -3553,16 +4015,20 @@ pub async fn download_update(
             &app,
             "publishUpdateApk",
             path.to_string_lossy().to_string(),
-        ).await?;
-        if published.starts_with("error:") {
-            return Err(published.trim_start_matches("error:").to_string());
-        }
-        if published != "private_fallback" {
-            if !published.starts_with("content://") {
-                return Err(format!("Android 下载目录返回未知结果：{published}"));
+        ).await;
+        // 下载已完成；导出到公共下载目录失败时保留私有 APK，仍可通过 FileProvider 安装。
+        match published {
+            Ok(location) if location.starts_with("content://") => {
+                let _ = tokio::fs::remove_file(&path).await;
+                return Ok(location);
             }
-            let _ = tokio::fs::remove_file(&path).await;
-            return Ok(published);
+            Ok(status) if status == "private_fallback" => {}
+            Ok(status) => {
+                log::warn!("APK 已下载，导出到下载目录失败，使用私有更新包：{status}");
+            }
+            Err(error) => {
+                log::warn!("APK 已下载，调用下载目录导出失败，使用私有更新包：{error}");
+            }
         }
     }
     Ok(path.to_string_lossy().to_string())
@@ -3707,7 +4173,7 @@ fn cache_locations(
     Ok((image, update))
 }
 
-fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(super) fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "android")]
     {
         // Tauri 的 Android app_data_dir 是应用数据根目录；files 子目录可由 FileProvider 安全共享。
@@ -3715,7 +4181,11 @@ fn update_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
             .join("files")
             .join("coolapk-desktop-update"))
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        Ok(app.path().app_cache_dir().map_err(|e| e.to_string())?.join("updates"))
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
     {
         let _ = app;
         Ok(std::env::temp_dir().join("coolapk-desktop-update"))
@@ -3726,7 +4196,11 @@ fn is_update_package_extension(path: &std::path::Path) -> bool {
     let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default();
     #[cfg(target_os = "android")]
     { extension.eq_ignore_ascii_case("apk") }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "macos")]
+    { extension.eq_ignore_ascii_case("dmg") }
+    #[cfg(target_os = "linux")]
+    { extension.eq_ignore_ascii_case("AppImage") || extension.eq_ignore_ascii_case("deb") || extension.eq_ignore_ascii_case("rpm") }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "linux")))]
     { extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("msi") }
 }
 
@@ -3882,13 +4356,17 @@ pub fn get_update_distribution() -> String {
             "portable".to_string()
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        super::desktop_update::distribution().to_string()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         "installer".to_string()
     }
 }
 
-/// Windows 启动 NSIS/便携版更新；Android 将 APK 交给系统安装器确认。
+/// 按当前发行方式启动更新，保留各平台的安装和授权流程。
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle, installer_path: String, portable: bool) -> Result<String, String> {
     #[cfg(target_os = "windows")]
@@ -3902,12 +4380,31 @@ pub async fn install_update(app: tauri::AppHandle, installer_path: String, porta
         }
         install_update_android(app, installer_path).await
     }
-    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            super::desktop_update::install(&app, &installer_path, portable)
+        }).await.map_err(|error| error.to_string())?.map(|_| "started".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "android", target_os = "macos", target_os = "linux")))]
     {
         let _ = app;
         let _ = installer_path;
         let _ = portable;
         Err("当前平台暂不支持应用内自动安装，请前往发布页面手动下载安装".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn take_update_install_error(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = update_cache_dir(&app)?.join("install-error.txt");
+    match std::fs::read_to_string(&path) {
+        Ok(error) => {
+            let _ = std::fs::remove_file(path);
+            Ok(Some(error))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
     }
 }
 
@@ -3956,10 +4453,21 @@ async fn call_android_update_method(
                 let value = jni::objects::JString::from(value);
                 Ok(env.get_string(&value)?.into())
             })();
-            if result.is_err() && env.exception_check().unwrap_or(false) {
+            let result = result.map_err(|error| {
+                // JNI 默认只返回 JavaException；清除挂起异常后读取真实原因，便于定位混淆和系统安装器错误。
+                let exception = env.exception_occurred().ok();
                 let _ = env.exception_clear();
-            }
-            let _ = sender.send(result.map_err(|error| error.to_string()));
+                let detail = exception.filter(|value| !value.is_null()).and_then(|exception| {
+                    let value = env.call_method(exception, "toString", "()Ljava/lang/String;", &[]).ok()?.l().ok()?;
+                    let value = jni::objects::JString::from(value);
+                    let detail: String = env.get_string(&value).ok()?.into();
+                    Some(detail)
+                });
+                // 读取异常详情本身也可能抛出异常，不能污染后续 JNI 调用。
+                let _ = env.exception_clear();
+                format!("Android {method} 调用失败：{}", detail.unwrap_or_else(|| error.to_string()))
+            });
+            let _ = sender.send(result);
         });
     }).map_err(|error| format!("调用 Android 安装器失败：{error}"))?;
     tokio::time::timeout(Duration::from_secs(120), receiver)
@@ -4261,6 +4769,11 @@ pub async fn search_goods(
         .client
         .search_goods(&keyword, &sort_name, &sort, is_coupon, page)
         .await
+}
+
+#[tauri::command]
+pub async fn prepare_goods_by_url(state: State<'_, AppState>, url: String) -> Result<Value, String> {
+    state.client.prepare_goods_by_url(&url).await
 }
 
 #[tauri::command]
@@ -4628,4 +5141,9 @@ mod download_tests {
         assert!(validate_download_path_for_file_operation(&text).is_err());
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+#[tauri::command]
+pub async fn upload_publish_video(state: State<'_, AppState>, video_bytes: Vec<u8>, file_name: String, cover_bytes: Vec<u8>, duration: u64) -> Result<Value, String> {
+    state.client.upload_publish_video(&video_bytes, &file_name, &cover_bytes, duration).await
 }

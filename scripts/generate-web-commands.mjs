@@ -3,15 +3,40 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const source = fs.readFileSync(path.join(root, 'src-tauri/src/coolapk/commands.rs'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'src-tauri/src/coolapk/commands.rs'), 'utf8').replace(/\r\n/g, '\n');
 const outDir = path.join(root, 'web-server/src');
 // Desktop uses its own networking policy. The NAS version hardens every fresh
 // client before a helper can follow a public URL redirect into the LAN.
 const clientSource = fs.readFileSync(path.join(root, 'src-tauri/src/coolapk/client.rs'), 'utf8')
+  .replace(/\r\n/g, '\n')
   .replace(/\b(?:reqwest::)?Client::builder\(\)/g, match => `${match}.redirect(crate::secure_redirect_policy()).timeout(std::time::Duration::from_secs(45))`)
+  .replace(/(let oss_url = format!\([^\n]+\);)/g, '$1\n        crate::uploads::validate_oss_upload_url(&oss_url)?;')
+  .replace('let url = format!("https://{bucket}.{host}/{key}");', 'let url = format!("https://{bucket}.{host}/{key}");\n        crate::uploads::validate_oss_upload_url(&url)?;')
+  .replace('.client\n            .request(reqwest::Method::PUT, &oss_url)', '.redirect_client\n            .request(reqwest::Method::PUT, &oss_url)\n            .timeout(std::time::Duration::from_secs(600))')
+  .replace('self.client.put(url).header("Authorization"', 'self.redirect_client.put(url).timeout(std::time::Duration::from_secs(600)).header("Authorization"')
+  .replace('return Err(format!("OSS 直传失败 (HTTP {}): {}", oss_status, &oss_body));', 'return Err(format!("OSS 直传失败 (HTTP {})", oss_status));')
+  .replace('Err(format!("OSS 直传响应异常: {}", &oss_body))', 'Err("OSS 直传响应异常".to_string())')
+  .replace('let oss_res = oss_request.send().await.map_err(|e| e.to_string())?;', 'let oss_res = oss_request.send().await.map_err(|_| "OSS 图片上传连接失败，结果未知，请先确认是否已完成".to_string())?;')
+  .replace('.map_err(|error| format!("上传到酷安 CDN 失败：{error}"))?', '.map_err(|_| "上传到酷安 CDN 连接失败，结果未知，请先确认是否已完成".to_string())?')
+  .replace('.body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?', '.body(bytes.to_vec()).send().await.map_err(|_| "OSS 视频上传连接失败，结果未知，请先确认是否已完成".to_string())?')
   .replace('let _ = std::fs::write(&path, json);', 'if crate::write_accounts_atomic(&path, json.as_bytes()).is_err() { log::error!("accounts.persistence_failed"); }')
   .replace('#[path = "client_tests.rs"]', '#[path = "../../../src-tauri/src/coolapk/client_tests.rs"]')
-  .replace('#[path = "api_tests.rs"]', '#[path = "../../../src-tauri/src/coolapk/api_tests.rs"]');
+  .replace('#[path = "api_tests.rs"]', '#[path = "../../../src-tauri/src/coolapk/api_tests.rs"]')
+  .replace('.redirect_client\n            .put(&oss_url)', '.redirect_client\n            .put(&oss_url)\n            .timeout(std::time::Duration::from_secs(3600))')
+  .replace('impl CoolapkClient {', `impl CoolapkClient {
+    // Long uploads own an identity snapshot and do not block account switching.
+    pub(crate) fn web_snapshot(&self) -> Result<Self, String> {
+        let code = self.device_code.read().map_err(|_| "无法读取设备信息")?.clone();
+        Ok(Self {
+            client: self.client.clone(), redirect_client: self.redirect_client.clone(),
+            auth: RwLock::new(CoolapkAuth::new(code.clone())),
+            user_cookie: RwLock::new(self.user_cookie.read().map_err(|_| "无法读取账户信息")?.clone()),
+            cookie_file: RwLock::new(None),
+            device_profile: RwLock::new(self.device_profile.read().map_err(|_| "无法读取设备信息")?.clone()),
+            device_code: RwLock::new(code),
+        })
+    }
+`);
 fs.writeFileSync(path.join(outDir, 'coolapk/client_generated.rs'), '// Generated from upstream client.rs by scripts/generate-web-commands.mjs.\n' + clientSource);
 
 // Rust command bodies only use normal string literals. Skip literals and comments
@@ -37,7 +62,7 @@ function bodyEnd(start) {
   throw new Error('Unbalanced Rust function body');
 }
 
-const custom = new Set(['check_login_status', 'check_login_info', 'save_cookie_securely', 'get_user_cookie', 'fetch_external_page', 'update_device_profile']);
+const custom = new Set(['check_login_status', 'check_login_info', 'save_cookie_securely', 'get_user_cookie', 'fetch_external_page', 'update_device_profile', 'upload_file_to_cdn', 'cancel_cdn_upload', 'take_update_install_error']);
 const copied = [];
 const commandPattern = /#\[tauri::command\][\s\S]*?pub (async )?fn (\w+)\s*\(/g;
 for (const match of source.matchAll(commandPattern)) {

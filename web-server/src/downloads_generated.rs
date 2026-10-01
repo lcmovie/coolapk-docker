@@ -292,7 +292,7 @@ async fn run_apk_download(
         return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
     }
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::coolapk::client::http_client_builder()
         .user_agent("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal")
         .redirect(crate::secure_redirect_policy()).connect_timeout(std::time::Duration::from_secs(20)).read_timeout(std::time::Duration::from_secs(60));
     if let Some(proxy) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {

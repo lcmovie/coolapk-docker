@@ -7,7 +7,8 @@
 <p align="center">基于 Vue 3、TypeScript、Pinia、Vite、Rust / Axum 和 Docker Compose 的第三方酷安 Docker 客户端。</p>
 
 <p align="center">
-  <a href="https://github.com/lcmovie">联系与支持</a>
+  <a href="https://github.com/lcmovie/coolapk-docker">项目主页</a>
+  <a href="https://github.com/lcmovie/coolapk-docker/issues">反馈与支持</a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker" alt="Docker Compose">
 </p>
@@ -23,7 +24,7 @@
 
 项目已迁移到服务器 `203.0.113.10`，安装目录为 `/opt/coolapk-docker`，端口 `18966`，服务继续运行。外网沿用 [酷安docker版](https://coolapk.example.com:88/)，Lucky 目标已切换到新机器。旧 NAS 项目已完成完整备份校验、删除和资源复核，其他服务保持不变。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md)、[验证说明](docs/docker-testing.md) 和 [本轮修复与迁移记录](docs/docker-migration.md)。
 
-酷安 Cookie 由用户在网页自行导入，测试不会展示真实凭据。经用户授权，2026-09-30 至 2026-10-01 已使用现有账号验证动态、点赞、收藏、评论、转发与私密收藏夹，并清理本轮临时内容。最终前端 114 个文件 / 716 项测试通过，Rust 62 项通过、21 项忽略；真实网页单次发布及升级后会话恢复已验证。私信自发和 Live Photo 视频受上游限制，详见 [完整测试报告](docs/docker-full-test-2026-10-01.md)。桌面 WebView 自动授权不适用于浏览器。
+酷安 Cookie 由用户在网页自行导入，测试不会展示真实凭据。经用户授权，2026-09-30 至 2026-10-01 已使用现有账号验证动态、点赞、收藏、评论、转发与私密收藏夹，并清理本轮临时内容。1.27.6 历史回归中前端 114 个文件 / 716 项测试通过，Rust 62 项通过、21 项忽略；真实网页单次发布及升级后会话恢复已验证。私信自发和 Live Photo 视频受上游限制，详见 [完整测试报告](docs/docker-full-test-2026-10-01.md)。桌面 WebView 自动授权不适用于浏览器。
 
 ## 本地归档
 
@@ -52,8 +53,6 @@
 
 ![界面预览 3](docs/screenshots/3.png)
 
-![界面预览 4](docs/screenshots/4.png)
-
 ![界面预览 5](docs/screenshots/5.png)
 
 ![界面预览 6](docs/screenshots/6.png)
@@ -64,7 +63,15 @@
 
 感谢原作者 [daimiaopeng](https://github.com/daimiaopeng/coolapk-desktop) 及原项目贡献者。本分支复用原 Vue 界面和 Rust 酷安协议逻辑，增加 Axum HTTP 服务、Docker Compose、服务端持久化和浏览器能力适配。
 
-联系与支持统一使用 [lcmovie 的 GitHub](https://github.com/lcmovie)。GitHub 统计暂时显示为 `0`，不请求原仓库的实时统计。
+项目源码、社区统计和 Release 更新来源为 [lcmovie/coolapk-docker](https://github.com/lcmovie/coolapk-docker)，问题反馈见 [本项目 Issues](https://github.com/lcmovie/coolapk-docker/issues)。关于页读取本仓库 GitHub 数据；请求失败显示未知状态。尚无 Release 时明确提示未发布，不将上游桌面安装包作为 Docker 更新。维护者主页为 [lcmovie](https://github.com/lcmovie)。
+
+## 贡献者
+
+[![贡献者](https://contrib.rocks/image?repo=lcmovie/coolapk-docker)](https://github.com/lcmovie/coolapk-docker/graphs/contributors)
+
+## 下载量统计图
+
+[![下载量统计图](https://release-monitor.com/chart/lcmovie/coolapk-docker.svg?stable=5)](https://release-monitor.com/#/lcmovie/coolapk-docker)
 
 ## 功能
 
@@ -89,6 +96,7 @@
 - Docker 服务的设备身份、应用访问会话和设置保存在安装目录 `data/`，容器重新创建后恢复。
 - Rust 服务请求酷安 API 和媒体，浏览器通过同源服务访问数据；人工验证码按需加载官方 SDK。
 - 请勿在 Issue、日志或截图中提交真实 Cookie、私信和其他个人数据。
+- 一键反馈打开本项目 GitHub Issues，不自动给原作者发送私信或上传日志。诊断页面保留上游 PNG/ZIP 日志附件提取能力，分享日志前请自行确认脱敏内容。
 
 部署存储与凭据保护参见 [部署说明](docs/docker-deployment.md) 和 [归档保护说明](docs/archive-2026-09-30.md)。
 
@@ -99,8 +107,8 @@
 - 各平台的 [Tauri 2 系统依赖](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
-git clone https://github.com/daimiaopeng/coolapk-desktop.git
-cd coolapk-desktop
+git clone https://github.com/lcmovie/coolapk-docker.git
+cd coolapk-docker
 npm ci
 npm run tauri dev
 ```
@@ -228,7 +236,7 @@ Cookie 保存在部署安装目录 `data/accounts/`，不回传原文给浏览�
 
 ## 贡献
 
-反馈与支持见 [GitHub](https://github.com/lcmovie)。提交前请运行前端构建、Rust 测试，并确保测试数据不包含真实账号、Cookie、设备标识或私信内容。
+反馈与支持见 [本项目 Issues](https://github.com/lcmovie/coolapk-docker/issues)。提交前请运行前端构建、Rust 测试，并确保测试数据不包含真实账号、Cookie、设备标识或私信内容。
 
 
 ## 许可证

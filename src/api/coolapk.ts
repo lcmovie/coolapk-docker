@@ -1,10 +1,12 @@
-import { invoke, isTauri } from '../utils/runtime';
+import { apiRequest, invoke, isTauri, readStagedBlob, uploadRequest } from '../utils/runtime';
+import type { PublishOptions } from '../types/publish';
 import { router } from '../router';
 import { getFeedDetailMessage, hasFeedMoreSuffix, parseWebFeedDetail } from '../utils/feedContent';
-import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
-import { isReadOnlyCommand, NATIVE_REQUEST_TIMEOUT_MS, requestWithPolicy, WEB_REQUEST_TIMEOUT_MS, type RequestKind, type RequestPolicy } from '../utils/requestCenter';
+import { isCoolapkWebUrl, normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import { explainUncertainWrite, isReadOnlyCommand, NATIVE_REQUEST_TIMEOUT_MS, requestWithPolicy, WEB_REQUEST_TIMEOUT_MS, type RequestKind, type RequestPolicy } from '../utils/requestCenter';
 import { logDiagnostic, summarizeDiagnosticError } from '../utils/diagnosticLogger';
 import { extractCaptchaParamsFromError, verifyWithCaptcha } from '../utils/neteaseCaptcha';
+import type { UpdatePackageType } from '../utils/updateChecker';
 
 async function safeFetchOnce(pythonEndpoint: string, tauriCmd: string, tauriArgs: any = {}, signal?: AbortSignal) {
   let rustError: unknown;
@@ -65,8 +67,8 @@ function nativeRequestPolicy(command: string, args: Record<string, unknown>, opt
   };
 }
 
-function invokeTransport(command: string, args: any, signal?: AbortSignal) {
-  return isTauri() ? invoke(command, args) : invoke(command, args, { signal });
+function invokeTransport(command: string, args: any, signal?: AbortSignal, timeoutMs?: number) {
+  return isTauri() ? invoke(command, args) : invoke(command, args, { signal, timeoutMs });
 }
 
 const SAFE_DIAGNOSTIC_ARG_KEYS = new Set([
@@ -89,7 +91,7 @@ async function invokeNative(tauriCmd: string, tauriArgs: any = {}, options: Nati
   const context = summarizeNativeRequestArgs(tauriArgs);
   try {
     const result = await requestWithPolicy(tauriCmd, async (signal) => {
-      const response = await invokeTransport(tauriCmd, tauriArgs, signal);
+      const response = await invokeTransport(tauriCmd, tauriArgs, signal, options.timeoutMs);
       if (response && (response as any).code === 200) return response as any;
       throw new Error((response as any)?.message || `${tauriCmd} 返回格式不正确`);
     }, nativeRequestPolicy(tauriCmd, tauriArgs, options));
@@ -99,6 +101,20 @@ async function invokeNative(tauriCmd: string, tauriArgs: any = {}, options: Nati
     logDiagnostic('warn', 'api', 'request_failed', `${tauriCmd}${context ? ` ${context}` : ''} elapsed_ms=${Date.now() - started} reason=${summarizeDiagnosticError(error)}`);
     throw error;
   }
+}
+
+async function browserMediaUpload(path: string, form: FormData) {
+  const response = await uploadRequest<any>(path, form);
+  if (response?.code !== 200 || response.data == null) throw explainUncertainWrite(response?.message || '上传返回格式不正确');
+  return response;
+}
+
+async function browserStageFile(file: File, purpose: 'cdn' | 'draft', signal?: AbortSignal): Promise<{ filePath: string; fileName: string; size: number }> {
+  if (file.size > 256 * 1024 * 1024) throw new Error('请选择不超过 256 MB 的文件');
+  const query = purpose === 'draft' ? 'purpose=draft&' : '';
+  const response = await uploadRequest<any>(`/api/uploads/stage?${query}name=${encodeURIComponent(file.name)}`, file, signal, { 'Content-Type': 'application/octet-stream' });
+  if (!/^upload:[a-f0-9]{64}$/.test(response?.filePath || '') || typeof response.fileName !== 'string' || response.size !== file.size) throw explainUncertainWrite('暂存文件返回格式不正确');
+  return response;
 }
 
 export class CoolapkTauriAPI {
@@ -190,6 +206,10 @@ export class CoolapkTauriAPI {
   // 1.4 产品（数码）详情与所属动态
   static async getProductDetail(productId: string) {
     return await invokeNative('get_product_detail', { productId });
+  }
+
+  static async getProductVersions(productId: string) {
+    return await invokeNative('get_product_versions', { productId });
   }
 
   static async getProductFeeds(productId: string, feedType: string = 'feed', page: number = 1, listType: string = '') {
@@ -724,8 +744,8 @@ export class CoolapkTauriAPI {
     return await invokeNative('delete_message_chat', { ukey });
   }
 
-  static async sendPrivateMessage(uid: string, message: string) {
-    return await invokeNative('send_private_message', { uid, message });
+  static async sendPrivateMessage(uid: string, message: string, options?: { retry: boolean }) {
+    return await invokeNative('send_private_message', { uid, message }, options);
   }
 
   static async likeFeed(feedId: string) {
@@ -1097,6 +1117,11 @@ export class CoolapkTauriAPI {
     return await invokeNative('search_feed_topics', { query, page });
   }
 
+  // 与官方发帖选择器一致，空关键词获取最近参与及热门话题。
+  static async searchPublishTopics(query: string, page = 1, recentIds = '') {
+    return await invokeNative('search_publish_topics', { query, page, recentIds });
+  }
+
   static async getProductDetailByName(name: string) {
     return await invokeNative('get_product_detail_by_name', { name });
   }
@@ -1147,8 +1172,54 @@ export class CoolapkTauriAPI {
     return await invokeNative('create_forward', args);
   }
 
-  static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string) {
-    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid });
+  // 普通视频独立走官方腾讯 UGC 流程。
+  static async uploadPublishVideo(videoBytes: Uint8Array, fileName: string, coverBytes: Uint8Array, duration: number) {
+    if (!isTauri()) {
+      const form = new FormData();
+      form.append('video', new Blob([new Uint8Array(videoBytes)], { type: 'video/mp4' }), fileName);
+      form.append('cover', new Blob([new Uint8Array(coverBytes)], { type: 'image/jpeg' }), 'cover.jpg');
+      form.append('duration', String(duration));
+      return await browserMediaUpload('/api/uploads/publish-video', form);
+    }
+    return await invokeNative('upload_publish_video', { videoBytes, fileName, coverBytes, duration });
+  }
+
+  static async uploadImage(imageBytes: Uint8Array, fileName: string, contentType: string, dir: string = 'feed', toUid?: string, liveVideoBytes?: Uint8Array, hdr = 0) {
+    if (!isTauri()) {
+      const form = new FormData();
+      form.append('image', new Blob([new Uint8Array(imageBytes)], { type: contentType }), fileName);
+      form.append('dir', dir);
+      form.append('hdr', String(hdr));
+      if (toUid) form.append('toUid', toUid);
+      if (liveVideoBytes) form.append('liveVideo', new Blob([new Uint8Array(liveVideoBytes)], { type: 'video/mp4' }), 'live.mp4');
+      return await browserMediaUpload('/api/uploads/image', form);
+    }
+    return await invokeNative('upload_image', { imageBytes, fileName, contentType, dir, toUid, liveVideoBytes, hdr });
+  }
+
+  static async uploadFileToCdn(taskId: string, filePath: string, attempt: number) {
+    return await invokeNative('upload_file_to_cdn', { taskId, filePath, attempt }, { retry: false, timeoutMs: 0 });
+  }
+
+  static async stageCdnFile(file: File, signal?: AbortSignal): Promise<{ filePath: string; fileName: string; size: number }> {
+    return await browserStageFile(file, 'cdn', signal);
+  }
+
+  static async stageDraftFile(file: File): Promise<{ filePath: string; fileName: string; size: number }> {
+    return await browserStageFile(file, 'draft');
+  }
+
+  static async readStagedFile(filePath: string): Promise<Blob> {
+    return await readStagedBlob(filePath);
+  }
+
+  static async releaseCdnFile(filePath: string): Promise<void> {
+    if (!/^upload:[a-f0-9]{64}$/.test(filePath)) throw new Error('暂存文件标识无效');
+    await apiRequest(`/api/uploads/stage/${encodeURIComponent(filePath.slice(7))}`, { method: 'DELETE' });
+  }
+
+  static async cancelCdnUpload(taskId: string) {
+    return await invoke<boolean>('cancel_cdn_upload', { taskId });
   }
 
   static async changeAvatar(imageBytes: Uint8Array, fileName: string, contentType: string) {
@@ -1248,8 +1319,8 @@ export class CoolapkTauriAPI {
   }
 
   // 10. 离线/在线发布动态
-  static async createFeed(message: string, pic?: string, postToken?: string) {
-    const args: any = { message };
+  static async createFeed(message: string, pic?: string, postToken?: string, options?: PublishOptions) {
+    const args: any = { message, options };
     if (pic) args.pic = pic;
     if (postToken) args.postToken = postToken;
     return await invokeNative('create_feed', args);
@@ -1339,7 +1410,10 @@ export class CoolapkTauriAPI {
   }
 
   static async openUrl(url: string, mode: 'internal' | 'system' = 'internal') {
-    if (mode === 'internal') {
+    url = url.trim();
+    if (url.startsWith('//')) url = `https:${url}`;
+    // 站外域名直接调起系统浏览器，不入路由、不抓取外部网页，也不受打开方式设置影响。
+    if (mode === 'internal' && isCoolapkWebUrl(url)) {
       // 酷安站内深链优先交给桌面原生页面处理，避免把 feed、话题、用户、应用、产品
       // 等酷安内容降级成抓取后的纯文本网页。
       const nativeRoute = normalizeCoolapkRoute(url);
@@ -1348,8 +1422,8 @@ export class CoolapkTauriAPI {
         return;
       }
 
-      // 无对应原生页面的 HTTPS 链接再进入安全渲染的外部页面。
-      if (url.startsWith('http://') || url.startsWith('https://')) {
+      // 未适配的酷安网页仍可在应用内查看。
+      if (/^https?:\/\//i.test(url)) {
         await router.push({ path: '/external', query: { url } });
         return;
       }
@@ -1360,7 +1434,9 @@ export class CoolapkTauriAPI {
     }
     try {
       await invoke('open_url', { url, mode: 'system' });
-    } catch {
+    } catch (error) {
+      // 原生应用中 window.open 仍是 WebView，无法作为系统浏览器的备用入口。
+      if ('__TAURI_INTERNALS__' in window) throw error;
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
@@ -1415,7 +1491,11 @@ export class CoolapkTauriAPI {
   }
 
   static async getUpdateDistribution() {
-    return await invoke<'installer' | 'portable'>('get_update_distribution');
+    return await invoke<UpdatePackageType>('get_update_distribution');
+  }
+
+  static async takeUpdateInstallError() {
+    return await invoke<string | null>('take_update_install_error');
   }
 
   static async isUpdatePackageAvailable(installerPath: string) {
@@ -1613,6 +1693,11 @@ export class CoolapkTauriAPI {
 
   static async getGoodsDetail(goodsId: string) {
     return await invokeNative('get_goods_detail', { goodsId });
+  }
+
+  // 商城搜索结果先转换为酷安好物，不能将商城 SKU 当作好物详情 ID。
+  static async prepareGoodsByUrl(url: string) {
+    return await invokeNative('prepare_goods_by_url', { url });
   }
 
   static async getGoodsListTypes() {

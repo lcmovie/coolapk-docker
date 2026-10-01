@@ -4,6 +4,149 @@ use http_body_util::BodyExt;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
+async fn stage_call(router: &Router, access: Option<&str>, path: &str, bytes: Vec<u8>) -> Response {
+    let mut request = Request::builder().method("POST").uri(path).header("Host", "coolapk.test").header(header::CONTENT_TYPE, "application/octet-stream");
+    if let Some(access) = access { request = request.header(header::COOKIE, access); }
+    router.clone().oneshot(request.body(Body::from(bytes)).unwrap()).await.unwrap()
+}
+
+#[tokio::test]
+async fn staged_uploads_require_auth_and_reject_paths_and_unknown_purposes() {
+    let (_temp, state, router) = fixture().await;
+    assert_eq!(stage_call(&router, None, "/api/uploads/stage?name=fixture.txt", b"synthetic".to_vec()).await.status(), StatusCode::UNAUTHORIZED);
+    let access = setup(&router).await;
+    for url in ["/api/uploads/stage?name=..%2Faccount.json", "/api/uploads/stage?name=fixture.txt&purpose=accounts", "/api/uploads/stage?name=.hidden"] {
+        assert_eq!(stage_call(&router, Some(&access), url, b"synthetic".to_vec()).await.status(), StatusCode::BAD_REQUEST);
+    }
+    let response = router.clone().oneshot(Request::builder().method("POST").uri("/api/uploads/stage?name=fixture.txt").header("Host", "coolapk.test").header("Origin", "https://evil.test").header(header::COOKIE, &access).header(header::CONTENT_TYPE, "application/octet-stream").body(Body::from("synthetic")).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(std::fs::read_dir(state.data_dir.join("uploads")).unwrap().count(), 0);
+    for path in ["/etc/passwd", "../accounts/accounts.json", "upload:../accounts.json"] {
+        let response = call(&router, "POST", "/api/invoke/upload_file_to_cdn", Some(&access), json!({"taskId":"synthetic","attempt":1,"filePath":path})).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(response_json(call(&router, "POST", "/api/invoke/cancel_cdn_upload", Some(&access), json!({"taskId":"absent"})).await).await, json!(false));
+}
+
+#[tokio::test]
+async fn staged_file_roundtrip_is_private_persistent_and_released_idempotently() {
+    let (_temp, state, router) = fixture().await;
+    let access = setup(&router).await;
+    let staged = response_json(stage_call(&router, Some(&access), "/api/uploads/stage?name=fixture.txt", b"synthetic staged payload".to_vec()).await).await;
+    let path = staged["filePath"].as_str().unwrap();
+    assert!(path.starts_with("upload:"));
+    assert!(!staged.to_string().contains(state.data_dir.to_str().unwrap()));
+    let token = &path[7..];
+    let restored = AppState::new(state.data_dir.clone(), state.static_dir.clone(), None, None).await.unwrap();
+    let router = app(restored);
+    let response = call(&router, "GET", &format!("/api/uploads/stage/{token}"), Some(&access), json!({})).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_DISPOSITION], "attachment");
+    assert!(response.headers()[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    assert_eq!(response.into_body().collect().await.unwrap().to_bytes(), b"synthetic staged payload"[..]);
+    assert_eq!(call(&router, "GET", &format!("/api/files/uploads/{token}/body/fixture.txt"), Some(&access), json!({})).await.status(), StatusCode::BAD_REQUEST);
+    for _ in 0..2 { assert_eq!(call(&router, "DELETE", &format!("/api/uploads/stage/{token}"), Some(&access), json!({})).await.status(), StatusCode::OK); }
+    assert_eq!(call(&router, "GET", &format!("/api/uploads/stage/{token}"), Some(&access), json!({})).await.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn draft_files_do_not_expire_or_become_cdn_jobs_and_orphans_are_removed_at_restart() {
+    let (_temp, state, router) = fixture().await;
+    let access = setup(&router).await;
+    let mut paths = Vec::new();
+    for purpose in ["draft", "cdn"] {
+        let result = response_json(stage_call(&router, Some(&access), &format!("/api/uploads/stage?name=fixture.txt&purpose={purpose}"), b"synthetic".to_vec()).await).await;
+        let path = result["filePath"].as_str().unwrap().to_string();
+        let metadata = state.data_dir.join("uploads").join(&path[7..]).join("metadata.json");
+        let mut value: Value = serde_json::from_slice(&std::fs::read(&metadata).unwrap()).unwrap();
+        value["createdAt"] = json!(0);
+        std::fs::write(metadata, value.to_string()).unwrap();
+        paths.push(path);
+    }
+    let orphan = state.data_dir.join("uploads").join("a".repeat(64));
+    std::fs::create_dir(&orphan).unwrap();
+    std::fs::write(orphan.join("incomplete.tmp"), b"synthetic").unwrap();
+    let restored = AppState::new(state.data_dir.clone(), state.static_dir.clone(), None, None).await.unwrap();
+    let router = app(restored);
+    assert!(!orphan.exists());
+    assert_eq!(call(&router, "GET", &format!("/api/uploads/stage/{}", &paths[0][7..]), Some(&access), json!({})).await.status(), StatusCode::OK);
+    assert_eq!(call(&router, "GET", &format!("/api/uploads/stage/{}", &paths[1][7..]), Some(&access), json!({})).await.status(), StatusCode::BAD_REQUEST);
+    let response = call(&router, "POST", "/api/invoke/upload_file_to_cdn", Some(&access), json!({"taskId":"draft","attempt":1,"filePath":paths[0]})).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(response_json(response).await["error"].as_str().unwrap().contains("草稿附件"));
+}
+
+#[tokio::test]
+async fn draft_release_preserves_durable_references_after_an_uncertain_save() {
+    let (_temp, _state, router) = fixture().await;
+    let access = setup(&router).await;
+    let staged = response_json(stage_call(&router, Some(&access), "/api/uploads/stage?name=fixture.txt&purpose=draft", b"synthetic".to_vec()).await).await;
+    let path = staged["filePath"].as_str().unwrap();
+    let url = format!("/api/uploads/stage/{}", &path[7..]);
+    let draft = json!({"drafts":[{"images":[{"file":{"stagedPath":path,"name":"fixture.txt"}}]}]});
+    assert_eq!(call(&router, "PUT", "/api/store/publish_drafts.json", Some(&access), draft).await.status(), StatusCode::OK);
+    assert_eq!(call(&router, "DELETE", &url, Some(&access), json!({})).await.status(), StatusCode::CONFLICT);
+    assert_eq!(call(&router, "GET", &url, Some(&access), json!({})).await.status(), StatusCode::OK);
+    assert_eq!(call(&router, "PUT", "/api/store/publish_drafts.json", Some(&access), json!({"drafts":[]})).await.status(), StatusCode::OK);
+    assert_eq!(call(&router, "DELETE", &url, Some(&access), json!({})).await.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn binary_upload_limit_is_separate_from_json_and_partial_failures_leave_no_file() {
+    let (_temp, state, router) = fixture().await;
+    let access = setup(&router).await;
+    // Exercise a real body larger than the JSON limit without any upstream request.
+    let response = stage_call(&router, Some(&access), "/api/uploads/stage?name=large.bin", vec![0u8; MAX_JSON_BYTES + 1]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let result = response_json(response).await;
+    let token = &result["filePath"].as_str().unwrap()[7..];
+    assert_eq!(result["size"], MAX_JSON_BYTES + 1);
+    assert_eq!(call(&router, "DELETE", &format!("/api/uploads/stage/{token}"), Some(&access), json!({})).await.status(), StatusCode::OK);
+    let response = router.clone().oneshot(Request::builder().method("POST").uri("/api/uploads/stage?name=too-large.bin").header("Host", "coolapk.test").header(header::COOKIE, &access).header(header::CONTENT_TYPE, "application/octet-stream").header(header::CONTENT_LENGTH, (uploads::MAX_FILE_BYTES + 1).to_string()).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body = Body::from_stream(tokio_stream::iter([Ok::<Vec<u8>, std::io::Error>(b"partial".to_vec()), Err(std::io::Error::other("synthetic interruption"))]));
+    let response = router.clone().oneshot(Request::builder().method("POST").uri("/api/uploads/stage?name=partial.bin").header("Host", "coolapk.test").header(header::COOKIE, &access).header(header::CONTENT_TYPE, "application/octet-stream").body(body).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(std::fs::read_dir(state.data_dir.join("uploads")).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn staged_attachment_read_rejects_symlink_escape() {
+    let (_temp, state, router) = fixture().await;
+    let access = setup(&router).await;
+    let result = response_json(stage_call(&router, Some(&access), "/api/uploads/stage?name=fixture.txt", b"synthetic".to_vec()).await).await;
+    let token = &result["filePath"].as_str().unwrap()[7..];
+    let file = state.data_dir.join("uploads").join(token).join("body/fixture.txt");
+    std::fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink(state.data_dir.join("settings/access.json"), &file).unwrap();
+    assert_eq!(call(&router, "GET", &format!("/api/uploads/stage/{token}"), Some(&access), json!({})).await.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn multipart_video_validation_precedes_network_and_auth_is_enforced() {
+    let (_temp, state, router) = fixture().await;
+    let body = "--fixture\r\nContent-Disposition: form-data; name=\"video\"; filename=\"fixture.mp4\"\r\nContent-Type: video/mp4\r\n\r\ninvalid\r\n--fixture\r\nContent-Disposition: form-data; name=\"cover\"; filename=\"cover.jpg\"\r\nContent-Type: image/jpeg\r\n\r\ninvalid\r\n--fixture\r\nContent-Disposition: form-data; name=\"duration\"\r\n\r\n1\r\n--fixture--\r\n";
+    let request = || Request::builder().method("POST").uri("/api/uploads/publish-video").header("Host", "coolapk.test").header(header::CONTENT_TYPE, "multipart/form-data; boundary=fixture");
+    assert_eq!(router.clone().oneshot(request().body(Body::from(body)).unwrap()).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    let access = setup(&router).await;
+    let response = router.clone().oneshot(request().header(header::COOKIE, &access).body(Body::from(body)).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(response_json(response).await["error"].as_str().unwrap().contains("视频或封面"));
+    assert_eq!(std::fs::read_dir(state.data_dir.join("uploads")).unwrap().count(), 0);
+}
+
+#[test]
+fn uploads_never_send_temporary_credentials_to_untrusted_hosts() {
+    for raw in ["http://bucket.oss-cn.aliyuncs.com/key", "https://127.0.0.1/key", "https://bucket.aliyuncs.com.evil.test/key", "https://evil.test/key", "https://u:p@bucket.aliyuncs.com/key", "https://bucket.aliyuncs.com:8000/key", "https://bucket.aliyuncs.com/key?token=synthetic"] { assert!(uploads::validate_oss_upload_url(raw).is_err()); }
+    assert!(uploads::validate_oss_upload_url("https://bucket.oss-cn-hangzhou.aliyuncs.com/synthetic.png").is_ok());
+    let generated = include_str!("coolapk/client_generated.rs");
+    assert!(generated.contains(".redirect_client\n            .request(reqwest::Method::PUT"));
+    assert!(generated.contains("self.redirect_client.put(url)"));
+    let video = include_str!("../../src-tauri/src/coolapk/video_upload.rs");
+    assert!(video.contains(".redirect(reqwest::redirect::Policy::none())"));
+}
+
 async fn fixture() -> (TempDir, Arc<AppState>, Router) {
     let temp = tempfile::tempdir().unwrap();
     let static_dir = temp.path().join("dist");

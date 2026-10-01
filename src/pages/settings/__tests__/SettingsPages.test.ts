@@ -61,6 +61,8 @@ describe('设置页面交互', () => {
     localStorage.clear();
     sessionStorage.clear();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ stargazers_count: 0, forks_count: 0, open_issues_count: 0 }) }));
     document.body.innerHTML = '';
   });
 
@@ -74,6 +76,7 @@ describe('设置页面交互', () => {
     await wrapper.findAll('.density-card')[2].trigger('click');
     await wrapper.findAll('.setting-row').find((row) => row.text().includes('显示顶部页面标签栏'))!.find('.switch-input').setValue(false);
     await wrapper.findAll('.setting-row').find((row) => row.text().includes('禁止窄窗口自动切换手机模式'))!.find('.switch-input').setValue(true);
+    await wrapper.findAll('.setting-row').find((row) => row.text().includes('默认显示右侧评论'))!.find('.switch-input').setValue(false);
     await wrapper.findAll('.zoom-btn')[3].trigger('click');
     await wrapper.find('.nav-toggle-card input').setValue(false);
     expect(wrapper.find('.nav-main-grid').text()).not.toContain('应用');
@@ -88,6 +91,7 @@ describe('设置页面交互', () => {
     expect(settings.settings.density).toBe('compact');
     expect(settings.settings.showPageTabBar).toBe(false);
     expect(settings.settings.disableAutoMobileMode).toBe(true);
+    expect(settings.settings.topicHubShowCommentsByDefault).toBe(false);
     expect(settings.settings.fontSize).toBe(16);
     expect(settings.settings.navVisibility?.home).toBe(false);
   });
@@ -203,15 +207,15 @@ describe('设置页面交互', () => {
     expect(settings.settings.messageEnterBehavior).toBe('newline');
   });
 
-  it('关于页展示 Docker 品牌与实际技术栈，社区数据固定为 0 且不请求上游统计', async () => {
+  it('关于页读取本项目社区数据，展示 Docker 品牌与实际技术栈', async () => {
     const fetchStats = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ stargazers_count: 1200, forks_count: 12, open_issues_count: 3 }) });
     vi.stubGlobal('fetch', fetchStats);
     const { wrapper } = mountPage(AboutSettingsPage);
     await flushPromises();
     expect(wrapper.text()).toContain('酷安docker版');
     expect(wrapper.findAll('.tech-badge').map((badge) => badge.text())).toEqual(['Vue 3', 'TypeScript', 'Pinia', 'Vite', 'Rust', 'Axum', 'Docker/Compose']);
-    expect(wrapper.findAll('.repo-stat').map((stat) => stat.text())).toEqual(['0', '0', '0']);
-    expect(fetchStats).not.toHaveBeenCalled();
+    expect(wrapper.findAll('.repo-stat').map((stat) => stat.text())).toEqual(['1200', '12', '3']);
+    expect(fetchStats).toHaveBeenCalledWith('https://api.github.com/repos/lcmovie/coolapk-docker', expect.objectContaining({ credentials: 'omit' }));
     expect(wrapper.text()).toContain('第三方非官方 Docker 客户端');
     const attribution = wrapper.get('.feedback-guide-group');
     expect(attribution.get('h4').text()).toBe('对原作者的感谢及本项目修改信息');
@@ -222,7 +226,7 @@ describe('设置页面交互', () => {
     vi.unstubAllGlobals();
   });
 
-  it('关于页联系与支持的全部入口打开维护者 GitHub，保留版本与检查更新操作', async () => {
+  it('关于页项目与反馈打开本仓库，联系入口打开维护者主页，保留更新操作', async () => {
     const eventSpy = vi.spyOn(window, 'dispatchEvent');
     const { wrapper } = mountPage(AboutSettingsPage);
     await flushPromises();
@@ -231,14 +235,30 @@ describe('设置页面交互', () => {
     expect(eventSpy).toHaveBeenCalled();
     const supportButtons = wrapper.findAll('.setting-group')[1].findAll('button');
     expect(supportButtons).toHaveLength(6);
-    for (const button of supportButtons) {
+    const urls = [
+      'https://github.com/lcmovie/coolapk-docker/issues',
+      'https://github.com/lcmovie/coolapk-docker',
+      'https://github.com/lcmovie/coolapk-docker/issues',
+      'https://github.com/lcmovie',
+      'https://github.com/lcmovie/coolapk-docker/issues',
+      'https://github.com/lcmovie',
+    ];
+    for (const [index, button] of supportButtons.entries()) {
       mocks.openUrl.mockClear();
       await button.trigger('click');
       expect(mocks.openUrl).toHaveBeenCalledOnce();
-      expect(mocks.openUrl).toHaveBeenCalledWith('https://github.com/lcmovie', 'system');
+      expect(mocks.openUrl).toHaveBeenCalledWith(urls[index], 'system');
     }
     expect(wrapper.text()).not.toContain('私信反馈');
     expect(wrapper.text()).not.toContain('daimiaopeng@gmail.com');
+  });
+
+  it('GitHub 失败时显示未知社区数据，不冒充零统计', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    const { wrapper } = mountPage(AboutSettingsPage);
+    await flushPromises();
+    expect(wrapper.findAll('.repo-stat').map(stat => stat.text())).toEqual(['—', '—', '—']);
+    expect(wrapper.text()).toContain('GitHub 数据暂不可用');
   });
 
   it('账号页在没有本地账户时展示空状态', async () => {

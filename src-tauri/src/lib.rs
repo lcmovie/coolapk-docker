@@ -19,7 +19,7 @@ use coolapk::commands::{
     get_app_detail, get_apk_comments, get_app_list, get_black_list, get_board_feeds, get_cache_info,
     get_collection_detail, get_collection_item_list, get_collection_list, create_collection,
     update_collection, delete_collection, remove_collection_item, clear_collection_invalid_items,
-    cleanup_update_packages, is_update_package_available,
+    cleanup_update_packages, is_update_package_available, take_update_install_error,
     get_feed_collection_status, get_cool_picture_rank, get_download_directory,
     get_device_feed_list, get_device_info, get_digest_feeds, get_download_version_list,
     get_discovery_config, get_discovery_page_data, get_live_detail,
@@ -58,6 +58,7 @@ use coolapk::commands::{
     unfavorite_apk, unfavorite_feed, unfollow_collection, unfollow_dyh, unfollow_live, unfollow_tag,
     update_collection_item,
     unfollow_user, unlike_collection, unlike_feed, unlike_reply, update_device_profile, upload_image,
+    upload_file_to_cdn, cancel_cdn_upload,
     vote_goods_list_item,
 };
 use download_manager::DownloadManager;
@@ -780,6 +781,7 @@ pub fn run() {
         client,
         downloads: DownloadManager::new(),
         login_session: std::sync::Mutex::new(None),
+        cdn_uploads: std::sync::Mutex::new(std::collections::HashMap::new()),
     };
 
     let builder = tauri::Builder::default()
@@ -798,6 +800,7 @@ pub fn run() {
             .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(4))
             .build())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -810,6 +813,8 @@ pub fn run() {
             // 重复启动时聚焦已有实例的主窗口；深链事件由插件转发给前端。
             show_main_window(app);
         }))
+        // 解锁 WKWebView 对 rAF 的半刷新率钳制（144Hz 屏 72→144），失败时仅告警降级
+        .plugin(tauri_plugin_macos_fps::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -1245,6 +1250,7 @@ pub fn run() {
             send_desktop_notification,
             download_update,
             get_update_distribution,
+            take_update_install_error,
             install_update,
             is_update_package_available,
             cleanup_update_packages,
@@ -1315,6 +1321,8 @@ pub fn run() {
             search_users,
             get_search_suggestions_app,
             search_feed_topics,
+            coolapk::commands::search_publish_topics,
+            coolapk::commands::get_product_versions,
             get_product_detail_by_name,
             get_load_config,
             get_home_tab_config,
@@ -1328,6 +1336,8 @@ pub fn run() {
             delete_reply,
             create_forward,
             upload_image,
+            upload_file_to_cdn,
+            cancel_cdn_upload,
             get_black_list,
             get_ignore_list,
             get_limit_list,
@@ -1351,6 +1361,8 @@ pub fn run() {
             search_apks_by_tag,
             get_goods_search_hot_words,
             search_goods,
+            coolapk::commands::prepare_goods_by_url,
+            coolapk::commands::upload_publish_video,
             get_goods_detail,
             get_goods_list_types,
             get_goods_list,

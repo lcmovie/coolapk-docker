@@ -2,6 +2,7 @@ mod coolapk;
 mod commands_generated;
 mod dispatch_generated;
 mod downloads_generated;
+mod uploads;
 #[path = "../../src-tauri/src/download_manager.rs"]
 mod download_manager;
 
@@ -63,11 +64,12 @@ pub struct AppState {
     stores_gate: Mutex<()>,
     public_origin: Option<String>,
     events: broadcast::Sender<(String, Value)>,
+    uploads: uploads::UploadState,
 }
 
 impl AppState {
     async fn new(data_dir: PathBuf, static_dir: PathBuf, password: Option<String>, public_origin: Option<String>) -> anyhow::Result<Arc<Self>> {
-        for dir in ["accounts", "settings", "cache", "downloads", "exports"] {
+        for dir in ["accounts", "settings", "cache", "downloads", "exports", "uploads"] {
             tokio::fs::create_dir_all(data_dir.join(dir)).await?;
         }
         let data_dir = tokio::fs::canonicalize(data_dir).await?;
@@ -95,10 +97,12 @@ impl AppState {
             if let Ok(profile) = serde_json::from_slice::<DeviceProfile>(&bytes) { client.update_device_profile(profile); }
         }
         let (events, _) = broadcast::channel(128);
-        Ok(Arc::new(Self {
+        let state = Arc::new(Self {
             client, downloads: download_manager::DownloadManager::new(), data_dir, static_dir,
-            access: Mutex::new(access), account_gate: RwLock::new(()), stores_gate: Mutex::new(()), public_origin, events,
-        }))
+            access: Mutex::new(access), account_gate: RwLock::new(()), stores_gate: Mutex::new(()), public_origin, events, uploads: uploads::UploadState::default(),
+        });
+        uploads::cleanup_and_usage(&state, true).map_err(anyhow::Error::msg)?;
+        Ok(state)
     }
     pub fn emit(&self, name: &str, payload: Value) -> Result<(), String> {
         let _ = self.events.send((name.to_string(), payload));
@@ -281,8 +285,12 @@ fn protected_command(command: &str) -> bool {
 async fn invoke(State(state): State<Arc<AppState>>, HttpPath(command): HttpPath<String>, Json(args): Json<Value>) -> ApiResult<Json<Value>> {
     if !args.is_object() { return Err("命令参数必须为 JSON 对象".to_string().into()); }
     let _write_gate = if protected_command(&command) { Some(tokio::time::timeout(Duration::from_secs(15), state.account_gate.write()).await.map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "账户请求正在处理，请稍后重试".into()))?) } else { None };
-    let _read_gate = if !protected_command(&command) && !matches!(command.as_str(), "start_apk_download" | "pause_apk_download" | "cancel_apk_download") { Some(tokio::time::timeout(Duration::from_secs(15), state.account_gate.read()).await.map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "账户正在切换，请稍后重试".into()))?) } else { None };
-    let result = if command == "start_apk_download" {
+    let _read_gate = if !protected_command(&command) && !matches!(command.as_str(), "start_apk_download" | "pause_apk_download" | "cancel_apk_download" | "upload_file_to_cdn" | "cancel_cdn_upload") { Some(tokio::time::timeout(Duration::from_secs(15), state.account_gate.read()).await.map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "账户正在切换，请稍后重试".into()))?) } else { None };
+    let result = if command == "upload_file_to_cdn" {
+        uploads::start(&state, &args).await
+    } else if command == "cancel_cdn_upload" {
+        uploads::cancel(&state, &args).await
+    } else if command == "start_apk_download" {
         dispatch_generated::dispatch(&state, &command, &args).await
     } else {
         tokio::time::timeout(Duration::from_secs(60), dispatch_web(&state, &command, &args)).await.map_err(|_| "酷安请求超时，请稍后重试".to_string())?
@@ -300,6 +308,7 @@ fn redact_secrets(value: Value) -> Value {
 }
 async fn dispatch_web(state: &AppState, command: &str, args: &Value) -> Result<Value, String> {
     match command {
+        "take_update_install_error" => Ok(Value::Null),
         "get_user_cookie" => Ok(if state.client.get_user_cookie().is_some() { json!("stored-on-server") } else { Value::Null }),
         "check_login_status" => state.client.check_login_status().await,
         "check_login_info" => state.client.check_login_info().await,
@@ -494,7 +503,7 @@ async fn cache_info(state: &AppState) -> Result<Value, String> {
 fn validate_media_url(raw: &str) -> Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "媒体地址不合法")?;
     let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
-    let allowed = ["coolapk.com", "coolapkmarket.com", "sinaimg.cn", "weibocdn.com", "weibo.com", "miaopai.com", "qq.com", "qpic.cn", "bilibili.com", "bilivideo.com", "hdslb.com"];
+    let allowed = ["coolapk.com", "coolapkmarket.com", "sinaimg.cn", "weibocdn.com", "weibo.com", "miaopai.com", "qq.com", "qpic.cn", "qcloud.com", "myqcloud.com", "bilibili.com", "bilivideo.com", "hdslb.com"];
     if !matches!(url.scheme(), "http" | "https") || url.port().is_some_and(|port| ![80, 443].contains(&port)) || !url.username().is_empty() || url.password().is_some() || !allowed.iter().any(|domain| host == *domain || host.ends_with(&format!(".{domain}"))) {
         return Err("媒体代理仅允许酷安及支持的公开媒体域名".into());
     }
@@ -583,7 +592,8 @@ fn app(state: Arc<AppState>) -> Router {
         .route("/events", get(events))
         .route("/files", get(files_list))
         .route("/files/{*relative}", get(file_get))
-        .layer(DefaultBodyLimit::max(MAX_JSON_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_JSON_BYTES));
+    let api = api.merge(uploads::routes())
         .layer(middleware::from_fn_with_state(state.clone(), protect));
     Router::new()
         .route("/healthz", get(|| async { Json(json!({"status":"ok"})) }))

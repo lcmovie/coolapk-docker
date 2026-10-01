@@ -2,17 +2,29 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const routerMock = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  currentRoute: { value: { path: '/' } },
+}));
+
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>();
   return {
     ...actual,
     useRoute: () => ({ path: '/' }),
+    useRouter: () => routerMock,
   };
 });
 
 import MainSidebar from '../MainSidebar.vue';
 import * as routeTransition from '../../../utils/routeTransition';
 import { CoolapkTauriAPI } from '../../../api/coolapk';
+import {
+  HOME_TAB_REFRESH_EVENT,
+  HOME_TAB_SCROLL_TOP_EVENT,
+  resetHomeTabClickState,
+} from '../../../utils/homeTab';
 
 const RouterLinkStub = {
   props: ['to'],
@@ -23,6 +35,8 @@ describe('MainSidebar', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    routerMock.currentRoute.value.path = '/';
+    resetHomeTabClickState();
   });
 
   it('点击导航项时触发 triggerSidebarTransition', async () => {
@@ -58,7 +72,7 @@ describe('MainSidebar', () => {
 
     await feedbackButton.trigger('click');
     expect(spy).not.toHaveBeenCalled();
-    expect(openSupport).toHaveBeenCalledWith('https://github.com/lcmovie', 'system');
+    expect(openSupport).toHaveBeenCalledWith('https://github.com/lcmovie/coolapk-docker/issues', 'system');
   });
 
   it('存在一键反馈与更新按钮并正常展示', async () => {
@@ -112,5 +126,34 @@ describe('MainSidebar', () => {
 
     await toggleButton.trigger('click');
     expect(toggleButton.attributes('title')).toBe('展开侧边栏');
+  });
+
+  it('已在首页时单击「首页」回到顶部，不重复导航', async () => {
+    const scrollTopSpy = vi.fn();
+    window.addEventListener(HOME_TAB_SCROLL_TOP_EVENT, scrollTopSpy);
+    const wrapper = mount(MainSidebar, {
+      global: { stubs: { 'router-link': RouterLinkStub } },
+    });
+
+    await wrapper.find('a[href="/"]').trigger('click');
+
+    expect(scrollTopSpy).toHaveBeenCalledTimes(1);
+    expect(routerMock.push).not.toHaveBeenCalled();
+    window.removeEventListener(HOME_TAB_SCROLL_TOP_EVENT, scrollTopSpy);
+  });
+
+  it('已在首页时双击「首页」回到顶部并刷新当前栏目', async () => {
+    const refreshSpy = vi.fn();
+    window.addEventListener(HOME_TAB_REFRESH_EVENT, refreshSpy);
+    const wrapper = mount(MainSidebar, {
+      global: { stubs: { 'router-link': RouterLinkStub } },
+    });
+
+    const homeLink = wrapper.find('a[href="/"]');
+    await homeLink.trigger('click');
+    await homeLink.trigger('click');
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    window.removeEventListener(HOME_TAB_REFRESH_EVENT, refreshSpy);
   });
 });

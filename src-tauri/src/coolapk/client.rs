@@ -3,9 +3,94 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue, LOCATION, USER_AGENT};
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
-use std::path::PathBuf;
-use std::sync::RwLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+// 可选字段与界面保持一致，未设置时保留普通动态默认值。
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublishOptions {
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub sub_type_id: Option<String>,
+    pub sub_data: Option<String>,
+    pub visible_status: Option<i32>,
+    pub large_cover: Option<bool>,
+    pub original_type: Option<u32>,
+    pub extra_url: Option<String>,
+    pub dyh_id: Option<String>,
+    pub media_url: Option<String>,
+    pub media_info: Option<String>,
+}
+
+fn apply_publish_options(form: &mut Vec<(&'static str, String)>, options: &PublishOptions) -> Result<(), String> {
+    let target_type = options.target_type.as_deref().unwrap_or("");
+    let target_id = options.target_id.as_deref().unwrap_or("");
+    if options.visible_status.is_some_and(|status| status != 1 && status != -1) { return Err("动态可见范围无效".to_string()); }
+    if options.original_type.is_some_and(|status| status > 3) { return Err("内容声明无效".to_string()); }
+    if options.extra_url.as_ref().is_some_and(|url| url.len() > 4096 || url.starts_with("javascript:") || url.starts_with("data:")) { return Err("附加内容链接无效".to_string()); }
+    if !["", "tag", "apk", "product_phone"].contains(&target_type) { return Err("不支持的发布板块类型".to_string()); }
+    if target_type.is_empty() != target_id.is_empty() { return Err("发布板块信息不完整".to_string()); }
+    if let Some(url) = options.media_url.as_deref() {
+        let parsed = reqwest::Url::parse(url).map_err(|_| "视频地址无效")?;
+        if !["http", "https"].contains(&parsed.scheme()) || url.len() > 4096 { return Err("视频地址无效".to_string()); }
+        let info: Value = serde_json::from_str(options.media_info.as_deref().unwrap_or("")).map_err(|_| "视频信息无效")?;
+        if info.get("mediaType").and_then(Value::as_str) != Some("video") { return Err("视频信息无效".to_string()); }
+    } else if options.media_info.is_some() { return Err("视频地址缺失".to_string()); }
+    let sub_type = options.sub_type_id.as_deref().unwrap_or("");
+    let sub_data = options.sub_data.as_deref().unwrap_or("");
+    if !sub_type.is_empty() {
+        if target_type != "product_phone" || !["0", "1", "2", "3", "4", "5", "6"].contains(&sub_type) { return Err("产品子板块无效".to_string()); }
+        match sub_type {
+            "3" | "4" => { if !form.iter().any(|(key, value)| *key == "pic" && !value.trim().is_empty()) { return Err("上手或样张至少需要一张图片".to_string()); } },
+            "1" => { if !sub_data.parse::<f64>().is_ok_and(|hours| hours.is_finite() && hours > 0.0) { return Err("续航时长无效".to_string()); } },
+            "2" => {
+                let scores: Value = serde_json::from_str(sub_data).map_err(|_| "跑分数据无效".to_string())?;
+                let entries = scores.as_object().ok_or("跑分数据无效")?;
+                if entries.is_empty() || entries.iter().any(|(key, value)| !["antutu_score", "geek_bench_single_score", "geek_bench_multi_score", "3d_mark_score"].contains(&key.as_str()) || !value.as_f64().is_some_and(|score| score.is_finite() && score > 0.0)) { return Err("跑分数据无效".to_string()); }
+            },
+            "5" => { if !sub_data.parse::<u32>().is_ok_and(|level| (1..=5).contains(&level)) { return Err("反馈严重度无效".to_string()); } },
+            "6" => {
+                let price: Value = serde_json::from_str(sub_data).map_err(|_| "到手价数据无效".to_string())?;
+                if !price.get("final_price").and_then(Value::as_f64).is_some_and(|price| price.is_finite() && price > 0.0) || !price.get("config_id").and_then(Value::as_u64).is_some_and(|id| id > 0) || !price.get("config_name").and_then(Value::as_str).is_some_and(|name| !name.trim().is_empty()) { return Err("到手价需要价格及产品配置".to_string()); }
+            },
+            _ => {},
+        }
+        form.push(("tsubid", sub_type.to_string()));
+        form.push(("tsubdata", sub_data.to_string()));
+    }
+    for (key, value) in form.iter_mut() {
+        match *key {
+            "targetType" => *value = target_type.to_string(),
+            "targetId" => *value = target_id.to_string(),
+            "publish_status" if options.visible_status.is_some() => *value = if options.visible_status == Some(-1) { "1" } else { "0" }.to_string(),
+            "is_html_article" if options.large_cover.is_some() => *value = if options.large_cover == Some(true) { "2" } else { "0" }.to_string(),
+            "original_type" if options.original_type.is_some() => *value = options.original_type.unwrap_or(0).to_string(),
+            "extra_url" if options.extra_url.is_some() => *value = options.extra_url.clone().unwrap_or_default(),
+            "media_url" if options.media_url.is_some() => *value = options.media_url.clone().unwrap_or_default(),
+            "media_info" if options.media_info.is_some() => *value = options.media_info.clone().unwrap_or_default(),
+            "dyhId" if options.dyh_id.is_some() => *value = options.dyh_id.clone().unwrap_or_default(),
+            "type" if target_type == "apk" => *value = "comment".to_string(),
+            _ => {},
+        }
+    }
+    Ok(())
+}
+
+/// 按官方 OSS 清单登记实况关系，视频名使用内容摘要避免同名覆盖。
+fn build_publish_upload_files(image: &[u8], name: &str, live_video: Option<&[u8]>, hdr: u32) -> (String, Option<String>) {
+    use md5::{Digest, Md5};
+    let video_name = live_video.map(|video| format!("{:x}.{}", Md5::digest(video), if video.get(8..12) == Some(b"qt  ") { "mov" } else { "mp4" }));
+    let mut files = vec![json!({ "name": name, "resolution": image_resolution(image), "md5": format!("{:x}", Md5::digest(image)), "hdr": hdr })];
+    if let (Some(video), Some(name)) = (live_video, video_name.as_ref()) {
+        files[0]["livePhotoVideo"] = json!(name);
+        files[0]["livePhoto"] = json!(1);
+        files.push(json!({ "name": name, "md5": format!("{:x}", Md5::digest(video)) }));
+    }
+    (Value::Array(files).to_string(), video_name)
+}
 
 /// 接口路径需求：记录服务端配置中声明的写接口风控要求。
 ///
@@ -160,6 +245,59 @@ fn build_oss_image_url(prefix: &str, file_name: &str) -> Option<String> {
         Some(format!("{prefix}/{file_name}"))
     } else {
         None
+    }
+}
+
+fn cdn_content_type(file_name: &str) -> &'static str {
+    let extension = file_name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("7z") => "application/x-7z-compressed",
+        Some("aab" | "bin" | "ipa") => "application/octet-stream",
+        Some("apk") => "application/vnd.android.package-archive",
+        Some("avi") => "video/x-msvideo",
+        Some("bz2") => "application/x-bzip2",
+        Some("csv") => "text/csv",
+        Some("deb") => "application/vnd.debian.binary-package",
+        Some("dmg") => "application/x-apple-diskimage",
+        Some("doc") => "application/msword",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("epub") => "application/epub+zip",
+        Some("exe") => "application/vnd.microsoft.portable-executable",
+        Some("flac") => "audio/flac",
+        Some("gz") => "application/gzip",
+        Some("gif") => "image/gif",
+        Some("html" | "htm") => "text/html",
+        Some("iso") => "application/x-iso9660-image",
+        Some("jpeg" | "jpg") => "image/jpeg",
+        Some("json") => "application/json",
+        Some("log" | "md" | "txt") => "text/plain",
+        Some("mkv") => "video/x-matroska",
+        Some("m4a") => "audio/mp4",
+        Some("mp3") => "audio/mpeg",
+        Some("mp4") => "video/mp4",
+        Some("msi") => "application/x-msi",
+        Some("mov") => "video/quicktime",
+        Some("pdf") => "application/pdf",
+        Some("png") => "image/png",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("rar") => "application/vnd.rar",
+        Some("rpm") => "application/x-rpm",
+        Some("rtf") => "application/rtf",
+        Some("svg") => "image/svg+xml",
+        Some("tar") => "application/x-tar",
+        Some("wav") => "audio/wav",
+        Some("webp") => "image/webp",
+        Some("webm") => "video/webm",
+        Some("xml") => "application/xml",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("zip") => "application/zip",
+        Some("xz") => "application/x-xz",
+        Some("zst") => "application/zstd",
+        Some("yaml" | "yml") => "application/yaml",
+        Some("ogg") => "audio/ogg",
+        _ => "application/octet-stream",
     }
 }
 
@@ -889,6 +1027,33 @@ fn image_source_url(value: &Value) -> Option<String> {
     None
 }
 
+/// 构造 HTTP 客户端：Apple 平台改用系统信任库校验 TLS 证书，
+/// 使 Rust 侧与 WKWebView 对系统根证书（含本机 MITM 代理、企业 CA）的信任决策一致。
+/// 其余平台保持 reqwest 默认的内置 Mozilla 根证书。
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    let builder = Client::builder();
+    #[cfg(target_vendor = "apple")]
+    let builder = match apple_platform_tls_config() {
+        Some(config) => builder.use_preconfigured_tls(config),
+        None => builder,
+    };
+    builder
+}
+
+/// Apple 平台经 Security.framework 校验证书；初始化失败时回退内置根证书，
+/// 避免客户端直接不可用（此时行为与旧版本一致）。
+#[cfg(target_vendor = "apple")]
+fn apple_platform_tls_config() -> Option<rustls::ClientConfig> {
+    use rustls_platform_verifier::ConfigVerifierExt;
+    match rustls::ClientConfig::with_platform_verifier() {
+        Ok(config) => Some(config),
+        Err(error) => {
+            log::warn!("tls.platform_verifier_unavailable reason={error}");
+            None
+        }
+    }
+}
+
 impl CoolapkClient {
     /// 设备码策略：
     /// - 未登录（游客态）：每台电脑首次启动随机生成一次并持久化，之后固定
@@ -912,11 +1077,11 @@ impl CoolapkClient {
         headers.insert("X-App-Supported", HeaderValue::from_static("2604201"));
         headers.insert("X-Dark-Mode", HeaderValue::from_static("0"));
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .default_headers(headers.clone())
             .build()
             .unwrap_or_default();
-        let redirect_client = Client::builder()
+        let redirect_client = http_client_builder()
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -1022,14 +1187,9 @@ impl CoolapkClient {
                 }
             }
             self.save_accounts(&accounts);
-            return code;
         }
-        let mut account_val = json!({ "uid": uid, "cookie": "", "deviceCode": code.clone() });
-        if let Some(ref dev_id) = custom_id {
-            account_val["deviceId"] = json!(dev_id.clone());
-        }
-        accounts.push(account_val);
-        self.save_accounts(&accounts);
+        // 账户不存在时不写入占位条目：设备码由 uid 确定性推导，无需落盘；
+        // 而空凭据条目会污染账户库，让“已保存账户”出现无法登录的幽灵账号。
         code
     }
 
@@ -1588,8 +1748,8 @@ impl CoolapkClient {
         }
 
         let response = request.send().await.map_err(|error| {
-            log::warn!("api.transport_failed method={} path={} timeout={} elapsed_ms={}",
-                method_name, log_path, error.is_timeout(), started.elapsed().as_millis());
+            log::warn!("api.transport_failed method={} path={} timeout={} elapsed_ms={} cause={}",
+                method_name, log_path, error.is_timeout(), started.elapsed().as_millis(), error_cause_chain(&error));
             error.to_string()
         })?;
         let status = response.status();
@@ -1657,8 +1817,8 @@ impl CoolapkClient {
             .send()
             .await
             .map_err(|error| {
-                log::warn!("api.guest_transport_failed path={} timeout={} elapsed_ms={}",
-                    log_path, error.is_timeout(), started.elapsed().as_millis());
+                log::warn!("api.guest_transport_failed path={} timeout={} elapsed_ms={} cause={}",
+                    log_path, error.is_timeout(), started.elapsed().as_millis(), error_cause_chain(&error));
                 error.to_string()
             })?;
         let status = response.status();
@@ -3505,7 +3665,7 @@ impl CoolapkClient {
                 .map_err(|_| "failed to upgrade image URL to HTTPS".to_string())?;
         }
 
-        let img_client = Client::builder()
+        let img_client = http_client_builder()
             .timeout(std::time::Duration::from_secs(12))
             .build()
             .unwrap_or_default();
@@ -3591,7 +3751,7 @@ impl CoolapkClient {
             return Err("仅支持 http(s) 链接".to_string());
         }
 
-        let page_client = reqwest::Client::builder()
+        let page_client = http_client_builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| e.to_string())?;
@@ -3791,7 +3951,7 @@ impl CoolapkClient {
             return Err("仅允许代理微博 HTTPS 视频地址".to_string());
         }
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .timeout(std::time::Duration::from_secs(90))
             .build()
             .map_err(|error| format!("创建视频代理客户端失败：{error}"))?;
@@ -3966,7 +4126,7 @@ impl CoolapkClient {
             return Err("Live Photo 视频地址必须来自酷安官方 HTTPS 域名".to_string());
         }
 
-        let client = Client::builder()
+        let client = http_client_builder()
             .timeout(std::time::Duration::from_secs(12))
             .build()
             .map_err(|e| format!("failed to create Live Photo codec client: {e}"))?;
@@ -5261,6 +5421,11 @@ impl CoolapkClient {
         )
     }
 
+    /// 发帖话题选择使用官方 searchTag，空关键词同时返回最近参与及热门话题。
+    pub async fn search_publish_topics(&self, query: &str, page: u32, recent_ids: &str) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/feed/searchTag", &[("q", query.to_string()), ("page", page.to_string()), ("recentIds", recent_ids.to_string())]).await?)
+    }
+
     /// 产品详情（按名称）
     /// 数据来源: GET /v6/product/detail?name={name}
     pub async fn get_product_detail_by_name(&self, name: &str) -> Result<Value, String> {
@@ -5268,6 +5433,11 @@ impl CoolapkClient {
             self.api_get("/v6/product/detail", &[("name", name.to_string())])
                 .await?,
         )
+    }
+
+    /// 到手价使用官方版本配置列表，而非产品详情中的参数展示行。
+    pub async fn get_product_versions(&self, product_id: &str) -> Result<Value, String> {
+        wrap_api_data(self.api_get("/v6/product/getVersionList", &[("product_id", product_id.to_string())]).await?)
     }
 
     /// 加载个人页卡片配置
@@ -5826,6 +5996,13 @@ impl CoolapkClient {
     /// 旧接口 /v6/feed/uploadImage 已被酷安服务端下线（旧版本不再支持图片上传），
     /// 改走新版 OSS 直传链路：ossUploadPrepare 获取凭证 → 直传阿里云 OSS → 返回图片地址。
     /// to_uid：私信场景需传对方 uid（dir=message），发动态（dir=feed）可不传。
+    /// 官方先向酷安申请腾讯 UGC 签名，再上传普通视频及封面。
+    pub async fn upload_publish_video(&self, video: &[u8], name: &str, cover: &[u8], duration: u64) -> Result<Value, String> {
+        let response = wrap_api_data(self.api_post("/v6/upload/TXUgcUploadPrepare", &[], &[]).await?)?;
+        let signature = response.get("data").and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or("未获得视频上传签名")?;
+        crate::coolapk::video_upload::upload(signature, video, name, cover, duration).await
+    }
+
     pub async fn upload_image(
         &self,
         image_bytes: &[u8],
@@ -5834,6 +6011,15 @@ impl CoolapkClient {
         dir: &str,
         to_uid: Option<&str>,
     ) -> Result<Value, String> {
+        self.upload_image_with_live(image_bytes, file_name, content_type, dir, to_uid, None, 0).await
+    }
+
+    /// 实况照片按官方文件清单同时登记封面和视频，HDR 标记由调用方传入。
+    pub async fn upload_image_with_live(&self, image_bytes: &[u8], file_name: &str, content_type: &str, dir: &str, to_uid: Option<&str>, live_video: Option<&[u8]>, hdr: u32) -> Result<Value, String> {
+        if ![0, 1].contains(&hdr) { return Err("HDR 标记无效".to_string()); }
+        if let Some(video) = live_video {
+            if video.len() < 12 || &video[4..8] != b"ftyp" { return Err("实况视频必须是标准 MP4 文件".to_string()); }
+        }
         let my_uid = self
             .user_cookie
             .read()
@@ -5854,20 +6040,7 @@ impl CoolapkClient {
             None => my_uid,
         };
 
-        // 1. 计算文件 MD5 并请求上传凭证
-        let md5_hex = {
-            use md5::{Digest, Md5};
-            let mut hasher = Md5::new();
-            hasher.update(image_bytes);
-            format!("{:x}", hasher.finalize())
-        };
-        let resolution = image_resolution(image_bytes);
-        let file_list = json!([{
-            "name": file_name,
-            "resolution": resolution,
-            "md5": md5_hex
-        }])
-        .to_string();
+        let (file_list, video_name) = build_publish_upload_files(image_bytes, file_name, live_video, hdr);
 
         // 发动态/评论配图用 image/feed，私信图片用 message/message
         let upload_bucket = if dir == "feed" { "image" } else { dir }.to_string();
@@ -5979,24 +6152,27 @@ impl CoolapkClient {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        // 视频无需图片回调；先上传成功才返回实况封面，避免静默退化为静态图片。
+        if let (Some(video), Some(name)) = (live_video, video_name.as_ref()) {
+            let info = data.get("fileInfo").and_then(Value::as_array).and_then(|files| files.iter().find(|file| file.get("name").and_then(Value::as_str) == Some(name.as_str()))).ok_or("服务端未返回实况视频凭证")?;
+            if !info.get("url").and_then(Value::as_str).is_some_and(|url| !url.is_empty()) {
+                let key = info.get("uploadFileName").and_then(Value::as_str).filter(|key| !key.is_empty()).ok_or("实况视频上传路径缺失")?;
+                self.put_live_photo_video(video, key, prepare_info).await?;
+            }
+        }
+
+        // 相同 MD5 的文件可能由服务端直接返回已有地址，官方客户端会跳过直传。
+        if let Some(url) = existing_file_url {
+            return Ok(json!({ "code": 200, "data": url }));
+        }
+
         if upload_file_name.is_empty()
             || bucket.is_empty()
             || end_point.is_empty()
             || access_key_id.is_empty()
             || access_key_secret.is_empty()
         {
-            return Err(format!(
-                "上传凭证不完整: {:?}",
-                prepare_json
-                    .get("data")
-                    .map(|d| d.to_string())
-                    .unwrap_or_default()
-            ));
-        }
-
-        // 相同 MD5 的文件可能由服务端直接返回已有地址，官方客户端会跳过直传。
-        if let Some(url) = existing_file_url {
-            return Ok(json!({ "code": 200, "data": url }));
+            return Err("上传凭证不完整".to_string());
         }
 
         // 2. 直传 OSS（PUT Object，OSS V1 签名）
@@ -6068,6 +6244,233 @@ impl CoolapkClient {
             return Ok(json!({ "code": 200, "data": image_url }));
         }
         Err(format!("OSS 直传响应异常: {}", &oss_body))
+    }
+
+    /// 将本地任意文件直接流式上传到酷安 CDN，并在每个读取块上报告真实进度。
+    pub async fn upload_file_with_progress<F>(&self, path: &Path, progress: F) -> Result<Value, String>
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        use base64::Engine as _;
+        use futures_util::TryStreamExt;
+        use md5::{Digest, Md5};
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        use tokio::io::SeekFrom;
+        use tokio_util::io::ReaderStream;
+
+        let metadata = tokio::fs::metadata(path)
+            .await
+            .map_err(|error| format!("读取文件信息失败：{error}"))?;
+        if !metadata.is_file() {
+            return Err("请选择一个普通文件".to_string());
+        }
+        let total = metadata.len();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| "文件名无效或包含不支持的字符".to_string())?
+            .to_string();
+        let my_uid = self
+            .current_uid()
+            .filter(|uid| !uid.trim().is_empty())
+            .ok_or_else(|| "请先登录酷安账号再上传文件".to_string())?;
+
+        // OSS 的 Content-MD5 与上传凭证都要求完整摘要，先分块读取计算，避免把大文件载入内存。
+        let mut source = tokio::fs::File::open(path)
+            .await
+            .map_err(|error| format!("打开文件失败：{error}"))?;
+        let mut hasher = Md5::new();
+        let mut buffer = vec![0u8; 256 * 1024];
+        let mut hashed = 0u64;
+        loop {
+            let read = source
+                .read(&mut buffer)
+                .await
+                .map_err(|error| format!("读取文件失败：{error}"))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            hashed = hashed.saturating_add(read as u64);
+        }
+        if hashed != total {
+            return Err("上传期间文件大小发生变化，请重新选择文件".to_string());
+        }
+        source
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(|error| format!("重置文件读取位置失败：{error}"))?;
+        let md5_digest = hasher.finalize();
+        let md5_hex = hex::encode(&md5_digest[..]);
+        let content_md5_b64 = base64::engine::general_purpose::STANDARD.encode(&md5_digest[..]);
+
+        let file_list = json!([{
+            "name": file_name.clone(),
+            "resolution": "0x0",
+            "md5": md5_hex,
+            "hdr": 0
+        }])
+        .to_string();
+        let prepare_params = [
+            ("uploadBucket", "image".to_string()),
+            ("uploadDir", "feed".to_string()),
+            ("is_anonymous", "0".to_string()),
+            ("uploadFileList", file_list),
+            ("toUid", my_uid),
+            ("feed_type", "feed".to_string()),
+        ];
+        let prepared = self
+            .api_post("/v6/upload/ossUploadPrepare", &[], &prepare_params)
+            .await?;
+        let data = prepared
+            .get("data")
+            .filter(|data| !data.is_null())
+            .ok_or_else(|| {
+                let message = prepared
+                    .get("message")
+                    .or_else(|| prepared.get("error"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("酷安服务端未返回上传凭证");
+                format!("酷安不接受此文件或暂时无法上传：{message}")
+            })?;
+        let file_info = data
+            .get("fileInfo")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .ok_or_else(|| "上传凭证中缺少文件信息".to_string())?;
+        let prepare_info = data
+            .get("uploadPrepareInfo")
+            .ok_or_else(|| "酷安服务端未返回 OSS 上传参数".to_string())?;
+        let upload_file_name = file_info
+            .get("uploadFileName")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let existing_url = file_info
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.trim().is_empty())
+            .map(str::to_string);
+        if let Some(url) = existing_url {
+            return Ok(json!({ "code": 200, "data": url }));
+        }
+
+        let field = |name: &str| {
+            prepare_info
+                .get(name)
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| format!("上传凭证缺少 {name}"))
+        };
+        if upload_file_name.is_empty() {
+            return Err("上传凭证缺少 uploadFileName".to_string());
+        }
+        let bucket = field("bucket")?;
+        let endpoint = field("endPoint")?;
+        let access_key_id = field("accessKeyId")?;
+        let access_key_secret = field("accessKeySecret")?;
+        let security_token = field("securityToken")?;
+        let image_prefix = prepare_info
+            .get("uploadImagePrefix")
+            .and_then(Value::as_str)
+            .filter(|prefix| !prefix.trim().is_empty())
+            .unwrap_or("http://image.coolapk.com")
+            .trim_end_matches('/');
+
+        let content_type = cdn_content_type(&file_name);
+        let now = chrono::Utc::now()
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let callback = "eyJjYWxsYmFja0JvZHlUeXBlIjoiYXBwbGljYXRpb25cL2pzb24iLCJjYWxsYmFja0hvc3QiOiJhcGkuY29vbGFway5jb20iLCJjYWxsYmFja1VybCI6Imh0dHBzOlwvXC9hcGkuY29vbGFway5jb21cL3Y2XC9jYWxsYmFja1wvbW9iaWxlT3NzVXBsb2FkU3VjY2Vzc0NhbGxiYWNrP2NoZWNrQXJ0aWNsZUNvdmVyUmVzb2x1dGlvbj0wJnZlcnNpb25Db2RlPTIxMDIwMzEiLCJjYWxsYmFja0JvZHkiOiJ7XCJidWNrZXRcIjoke2J1Y2tldH0sXCJvYmplY3RcIjoke29iamVjdH0sXCJoYXNQcm9jZXNzXCI6JHt4OnZhcjF9fSJ9";
+        let callback_var = "eyJ4OnZhcjEiOiJmYWxzZSJ9";
+        let resource = format!("/{bucket}/{upload_file_name}");
+        let canonical = format!(
+            "PUT\n{content_md5_b64}\n{content_type}\n{now}\nx-oss-callback:{callback}\nx-oss-callback-var:{callback_var}\nx-oss-security-token:{security_token}\n{resource}"
+        );
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        type HmacSha1 = Hmac<Sha1>;
+        let mut mac = HmacSha1::new_from_slice(access_key_secret.as_bytes())
+            .map_err(|error| error.to_string())?;
+        mac.update(canonical.as_bytes());
+        let signature = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let authorization = format!("OSS {access_key_id}:{signature}");
+
+        let endpoint = endpoint
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        let oss_url = format!("https://{bucket}.{endpoint}/{upload_file_name}");
+        let uploaded = Arc::new(AtomicU64::new(0));
+        let progress = Arc::new(progress);
+        progress(0, total);
+        let stream = ReaderStream::with_capacity(source, 256 * 1024).map_ok({
+            let uploaded = Arc::clone(&uploaded);
+            let progress = Arc::clone(&progress);
+            move |chunk| {
+                let current = uploaded
+                    .fetch_add(chunk.len() as u64, Ordering::Relaxed)
+                    .saturating_add(chunk.len() as u64);
+                // A full body has only been handed to the HTTP client at this point;
+                // reserve 100% for the OSS success response.
+                progress(current.min(total.saturating_sub(1)), total);
+                chunk
+            }
+        });
+        // This request carries short-lived OSS credentials. The redirect-disabled client
+        // prevents those headers from being forwarded to a different host.
+        let response = self
+            .redirect_client
+            .put(&oss_url)
+            .header("Authorization", authorization)
+            .header("Content-MD5", content_md5_b64)
+            .header("Content-Type", content_type)
+            .header("Content-Length", total.to_string())
+            .header("Date", now)
+            .header("x-oss-callback", callback)
+            .header("x-oss-callback-var", callback_var)
+            .header("x-oss-security-token", security_token)
+            .body(reqwest::Body::wrap_stream(stream))
+            .send()
+            .await
+            .map_err(|error| format!("上传到酷安 CDN 失败：{error}"))?;
+        if !response.status().is_success() {
+            return Err(format!("OSS 上传失败（HTTP {}）", response.status()));
+        }
+        if uploaded.load(Ordering::Relaxed) != total {
+            return Err("文件未完整传输到 OSS，请重试".to_string());
+        }
+        let url = build_oss_image_url(image_prefix, &upload_file_name)
+            .ok_or_else(|| "上传成功但酷安没有返回有效文件链接".to_string())?;
+        Ok(json!({ "code": 200, "data": url }))
+    }
+
+    /// 视频使用与封面同一组 OSS 凭证，签名中不包含图片专用回调。
+    async fn put_live_photo_video(&self, bytes: &[u8], key: &str, credentials: &Value) -> Result<(), String> {
+        use base64::Engine;
+        use md5::{Digest, Md5};
+        use hmac::{Hmac, Mac};
+        use sha1::Sha1;
+        let field = |name: &str| credentials.get(name).and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or_else(|| format!("上传凭证缺少 {name}"));
+        let bucket = field("bucket")?;
+        let endpoint = field("endPoint")?;
+        let id = field("accessKeyId")?;
+        let secret = field("accessKeySecret")?;
+        let token = field("securityToken")?;
+        let now = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        let digest = BASE64.encode(Md5::digest(bytes));
+        let resource = format!("/{bucket}/{key}");
+        let content_type = if bytes.get(8..12) == Some(b"qt  ") { "video/quicktime" } else { "video/mp4" };
+        let canonical = format!("PUT\n{digest}\n{content_type}\n{now}\nx-oss-security-token:{token}\n{resource}");
+        let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes()).map_err(|error| error.to_string())?;
+        mac.update(canonical.as_bytes());
+        let signature = BASE64.encode(mac.finalize().into_bytes());
+        let host = endpoint.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
+        let url = format!("https://{bucket}.{host}/{key}");
+        let response = self.client.put(url).header("Authorization", format!("OSS {id}:{signature}")).header("Content-MD5", digest).header("Content-Type", content_type).header("Date", now).header("x-oss-security-token", token).body(bytes.to_vec()).send().await.map_err(|error| error.to_string())?;
+        if !response.status().is_success() { return Err(format!("实况视频上传失败（HTTP {}）", response.status())); }
+        Ok(())
     }
 
     /// 用户黑名单（需登录）
@@ -6626,6 +7029,13 @@ impl CoolapkClient {
             "发布动态失败：",
         )
         .await
+    }
+
+    /// 普通动态扩展选项使用同一个官方表单接口，应用板块按 APK 提交 comment 类型。
+    pub async fn create_feed_with_options(&self, message: &str, pic: Option<&str>, post_token: Option<&str>, options: Option<&PublishOptions>) -> Result<Value, String> {
+        let mut form = build_create_feed_form(message, pic, post_token);
+        if let Some(options) = options { apply_publish_options(&mut form, options)?; }
+        self.submit_create_feed_form(form, "发布动态失败：").await
     }
 
     /// 回答问题（需登录）。APK 仍使用 createFeed，只是 type=answer 且 fid 为问题 ID。
@@ -7631,7 +8041,7 @@ impl CoolapkClient {
     }
 
     /// 应用所属动态列表（点评/讨论）
-    /// 数据来源: GET /v6/page/dataList?url=#/feed/apkCommentList
+    /// 与官方 AppViewListFragment 一致：GET /v6/apk/commentList，使用 listType 排序。
     pub async fn get_apk_feeds(
         &self,
         package_name: &str,
@@ -7644,11 +8054,10 @@ impl CoolapkClient {
         };
         let raw = self
             .api_get(
-                "/v6/page/dataList",
+                "/v6/apk/commentList",
                 &[
-                    ("url", "#/feed/apkCommentList".to_string()),
                     ("id", package_name.to_string()),
-                    ("sort", sort.to_string()),
+                    ("listType", sort.to_string()),
                     ("page", page.to_string()),
                 ],
             )
@@ -8038,6 +8447,12 @@ impl CoolapkClient {
             )
             .await?;
         Ok(json!({ "code": 200, "data": Self::extract_entity_rows(&raw) }))
+    }
+
+    /// 对照 APK goods/addGoods，将商城商品链接转换为可附加到动态的 FeedGoods。
+    pub async fn prepare_goods_by_url(&self, url: &str) -> Result<Value, String> {
+        if url.trim().is_empty() { return Err("商品缺少商城链接".to_string()); }
+        wrap_api_data(self.api_post("/v6/goods/addGoods", &[], &[("url", url.to_string())]).await?)
     }
 
     /// 商品/好物详情（FeedGoods）
@@ -8636,6 +9051,22 @@ mod path_requirements_tests {
         assert!(classify_path("/v6/feed/likeReply").needs_ddid);
         assert!(!classify_path("/v6/feed/followTag").needs_ddid);
         assert!(!classify_path("/v6/feed/unFollowTag").needs_ddid);
+    }
+}
+
+/// 传输失败时把错误的 source 链拼成一行，便于定位 DNS、证书、代理等真因。
+/// 只记录错误类别文本；该链不含请求 URL、Cookie 或响应体。
+fn error_cause_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut causes = Vec::new();
+    let mut current = std::error::Error::source(error);
+    while let Some(cause) = current {
+        causes.push(cause.to_string());
+        current = std::error::Error::source(cause);
+    }
+    if causes.is_empty() {
+        "none".to_string()
+    } else {
+        causes.join(" <- ")
     }
 }
 

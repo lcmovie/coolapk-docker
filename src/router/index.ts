@@ -8,6 +8,7 @@ import AppsPage from '../pages/AppsPage.vue';
 import GamesPage from '../pages/GamesPage.vue';
 import DownloadsPage from '../pages/DownloadsPage.vue';
 import FilesPage from '../pages/FilesPage.vue';
+import CdnUploadPage from '../pages/CdnUploadPage.vue';
 import FavoritesPage from '../pages/FavoritesPage.vue';
 import MyLikesPage from '../pages/MyLikesPage.vue';
 import MoreWorkspacePage from '../pages/MoreWorkspacePage.vue';
@@ -79,6 +80,7 @@ const routes = [
   { path: '/games', name: 'Games', component: GamesPage },
   { path: '/downloads', name: 'Downloads', component: DownloadsPage },
   { path: '/files', name: 'Files', component: FilesPage },
+  { path: '/cdn-upload', name: 'CdnUpload', component: CdnUploadPage },
   { path: '/topics', name: 'Topics', component: TopicsHubPage },
   { path: '/favorites', name: 'Favorites', component: FavoritesPage },
   { path: '/collection/:collectionId', redirect: (to: any) => ({ path: '/favorites', query: { collectionId: to.params.collectionId } }) },
@@ -153,7 +155,7 @@ const routes = [
       { path: 'shortcuts', component: ShortcutSettingsPage },
       { path: 'startup', component: StartupSettingsPage },
       { path: 'device', component: DeviceSettingsPage },
-      { path: 'diagnostics', component: DiagnosticsSettingsPage },
+      { path: 'diagnostics', component: DiagnosticsSettingsPage, props: (route: import('vue-router').RouteLocationNormalized) => ({ reportUrl: String(route.query.report || '') }) },
       { path: 'about', component: AboutSettingsPage },
     ]
   }

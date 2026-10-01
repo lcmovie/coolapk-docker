@@ -159,7 +159,7 @@
       </div>
     </div>
 
-    <div v-if="!isAndroidTauri" class="setting-group">
+    <div v-if="showDesktopLayoutSwitch" class="setting-group">
       <h4 class="group-title">窗口响应式布局</h4>
       <div class="setting-row">
         <div class="row-info">
@@ -188,6 +188,19 @@
           <span class="row-sub">显示首页右侧的热门话题列表</span>
         </div>
         <AppSwitch v-model="settingsStore.settings.showHomeHotTopics" />
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <h4 class="group-title">话题分屏</h4>
+      <p class="group-sub">设置宽屏打开话题时，右侧评论栏的默认状态；空间不足时仍会按窗口宽度自动隐藏</p>
+
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">默认显示右侧评论</span>
+          <span class="row-sub">开启后进入话题分屏时默认展开评论栏，也可在话题页临时收起或展开</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.topicHubShowCommentsByDefault" />
       </div>
     </div>
 
@@ -261,11 +274,14 @@ import AppSwitch from '../../components/common/AppSwitch.vue';
 import { moreNavs } from '../../config/navigation';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 import { showToast } from '../../utils/toast';
+import { isTouchMobilePlatform } from '../../utils/platform';
 
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
 const fontPickerOpening = ref(false);
 const isAndroidTauri = isTauri() && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+// 该开关是桌面端语义（窄窗口是否保留桌面外壳）；手机上窗口永远是窄的，开关会毁掉移动外壳，直接不展示。
+const showDesktopLayoutSwitch = !isTouchMobilePlatform();
 const selectedFontLabel = computed(() => settingsStore.settings.fontFamily || '系统默认');
 
 const accentColors: { key: AccentColor; label: string; color: string }[] = [

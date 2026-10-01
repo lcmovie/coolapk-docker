@@ -22,11 +22,22 @@ class MemoryStore implements StoreLike {
 }
 
 class WebStore implements StoreLike {
-  constructor(private fileName: string, private values: Record<string, unknown>) {}
+  private committedValues: Record<string, unknown>;
+  constructor(private fileName: string, private values: Record<string, unknown>) {
+    this.committedValues = JSON.parse(JSON.stringify(values));
+  }
   async get<T>(key: string): Promise<T | undefined> { return this.values[key] as T | undefined; }
   async set(key: string, value: unknown): Promise<void> { this.values[key] = value; }
   async save(): Promise<void> {
-    await apiRequest(`/api/store/${encodeURIComponent(this.fileName)}`, { method: 'PUT', body: JSON.stringify(this.values) });
+    // Public helpers serialize set/save per file; a failed write cannot leak dirty values to later reads.
+    const body = JSON.stringify(this.values);
+    try {
+      await apiRequest(`/api/store/${encodeURIComponent(this.fileName)}`, { method: 'PUT', body });
+      this.committedValues = JSON.parse(body);
+    } catch (error) {
+      this.values = JSON.parse(JSON.stringify(this.committedValues));
+      throw error;
+    }
   }
 }
 

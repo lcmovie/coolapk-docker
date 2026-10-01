@@ -71,6 +71,23 @@ describe('评论完整信息展示', () => {
     });
   }
 
+  it('官方接口排序模式保留返回顺序，隐藏本地排序且不受全局设置影响', async () => {
+    const wrapper = mountSection({}, {
+      preserveApiOrder: true,
+      comments: [
+        { id: 'old', message: '官方第一条', dateline: 100, likenum: 1 },
+        { id: 'new', message: '官方第二条', dateline: 300, likenum: 99 },
+        { id: 'middle', message: '官方第三条', dateline: 200, likenum: 50 },
+      ],
+    });
+    expect(wrapper.find('.comment-sort').exists()).toBe(false);
+    expect(wrapper.findAll('.comment-text').map(item => item.text())).toEqual(['官方第一条', '官方第二条', '官方第三条']);
+    useSettingsStore().settings.commentDefaultSortMode = 'likes';
+    await flushPromises();
+    expect(wrapper.findAll('.comment-text').map(item => item.text())).toEqual(['官方第一条', '官方第二条', '官方第三条']);
+    wrapper.unmount();
+  });
+
   it('展示设备、认证、楼层、属地和评论图片', () => {
     const wrapper = mountSection();
     expect(wrapper.text()).toContain('LV6');
@@ -84,6 +101,16 @@ describe('评论完整信息展示', () => {
   it('评论图片已单独展示时移除正文中的图片占位文本', () => {
     const wrapper = mountSection({ message: '[图片]', picArr: ['/feed/animated.gif'] });
     expect(wrapper.find('.comment-text').text()).not.toContain('[图片]');
+  });
+
+  it('「继续下滑加载更多评论」提示可点，作为观察器失效时的手动兜底', async () => {
+    const wrapper = mountSection({}, { hasMoreComments: true });
+
+    const hint = wrapper.get('.comment-load-more-hint');
+    expect(hint.element.tagName).toBe('BUTTON');
+
+    await hint.trigger('click');
+    expect(wrapper.emitted('load-more-comments')).toHaveLength(1);
   });
 
   it('楼主筛选只展示楼主评论且保留原始评论总数', async () => {

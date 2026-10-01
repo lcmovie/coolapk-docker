@@ -3,7 +3,7 @@
     <div class="comment-toolbar">
       <div class="comment-toolbar-left">
         <strong class="comment-title">评论 <span>{{ commentCount }}</span></strong>
-        <div class="comment-sort" aria-label="评论排序和筛选">
+        <div v-if="!preserveApiOrder" class="comment-sort" aria-label="评论排序和筛选">
           <button
             v-for="option in commentSortOptions"
             :key="option.value"
@@ -516,7 +516,14 @@
       >
         {{ loadMoreError }}，点击重试
       </button>
-      <span v-else class="comment-load-more-hint">继续下滑加载更多评论</span>
+      <button
+        v-else
+        type="button"
+        class="comment-load-more-hint"
+        @click.stop="$emit('load-more-comments')"
+      >
+        继续下滑加载更多评论
+      </button>
     </div>
   </div>
 </template>
@@ -564,6 +571,7 @@ const props = withDefaults(
   defineProps<{
     feedId?: string | number;
     defaultSortMode?: CommentSortMode;
+    preserveApiOrder?: boolean;
     feedUid?: string | number;
     feedUsername?: string;
     comments: any[];
@@ -578,6 +586,7 @@ const props = withDefaults(
   }>(),
   {
     feedId: '',
+    preserveApiOrder: false,
     feedUid: '',
     feedUsername: '',
     totalCommentCount: undefined,
@@ -1667,6 +1676,8 @@ const nestedComments = computed(() => {
 });
 
 const sortedComments = computed(() => {
+  // 应用页通过官方 listType 请求排序，不能再按全局评论设置重排。
+  if (props.preserveApiOrder) return nestedComments.value;
   const visibleComments = authorOnly.value ? filterAuthorOnlyComments(nestedComments.value) : nestedComments.value;
   // APK 的楼主筛选由 fromFeedAuthor=1 决定顺序，不叠加当前排序按钮的本地排序。
   return authorOnly.value ? visibleComments : sortComments(visibleComments, commentSortMode.value);
@@ -1936,6 +1947,8 @@ async function handleSend() {
   border-radius: var(--radius-card, 12px);
   padding: 10px 12px;
   margin-bottom: 14px;
+  /* 键盘弹出时给编辑框下方留出键盘高度，保证表情/图片/发送按钮不被遮挡。 */
+  scroll-margin-bottom: calc(var(--keyboard-inset, 0px) + 16px);
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
 

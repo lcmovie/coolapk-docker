@@ -13,7 +13,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   const response = await fetch(path, {
     ...options,
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   });
   const payload = await response.json().catch(() => null);
   if (response.status === 401 && !path.startsWith('/api/auth/')) {
@@ -25,6 +25,35 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 }
 
 type WebInvokeOptions = { signal?: AbortSignal; timeoutMs?: number };
+
+/** Large uploads keep their binary body and use server cancellation/deadlines. */
+export async function uploadRequest<T>(path: string, body: BodyInit, signal?: AbortSignal, headers?: Record<string, string>): Promise<T> {
+  const controller = new AbortController();
+  let rejectCancelled!: (reason: Error) => void;
+  const cancelled = new Promise<never>((_resolve, reject) => { rejectCancelled = reject; });
+  const abort = () => { rejectCancelled(new DOMException('The request was aborted', 'AbortError')); controller.abort(); };
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  try {
+    if (controller.signal.aborted) return await cancelled;
+    const result = await Promise.race([apiRequest<T>(path, { method: 'POST', body, headers, signal: controller.signal }), cancelled]);
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) throw new Error('上传返回格式不正确');
+    return result;
+  } catch (error) {
+    throw explainUncertainWrite(error);
+  } finally { signal?.removeEventListener('abort', abort); }
+}
+
+export async function readStagedBlob(filePath: string): Promise<Blob> {
+  if (!/^upload:[a-f0-9]{64}$/.test(filePath)) throw new Error('暂存文件标识无效');
+  const response = await fetch(`/api/uploads/stage/${filePath.slice(7)}`, { credentials: 'same-origin' });
+  if (response.status === 401) {
+    window.dispatchEvent(new Event('coolapk-access-expired'));
+    throw new Error('网页访问会话已过期，请重新输入访问密码');
+  }
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || '草稿附件无法读取，请重新选择文件');
+  return await response.blob();
+}
 
 async function invokeHttp<T>(command: string, args: Record<string, any>, options: WebInvokeOptions): Promise<T> {
   const controller = new AbortController();
@@ -39,7 +68,7 @@ async function invokeHttp<T>(command: string, args: Record<string, any>, options
   // APK downloads return after streaming finishes and already have progress,
   // pause and cancel controls. Match the server's streaming deadline exemption.
   const timeoutMs = options.timeoutMs ?? (command === 'start_apk_download' ? undefined : WEB_REQUEST_TIMEOUT_MS);
-  const timer = timeoutMs === undefined ? undefined : window.setTimeout(() => {
+  const timer = timeoutMs === undefined || timeoutMs === 0 ? undefined : window.setTimeout(() => {
     rejectCancelled(new Error(`${command}请求超时`));
     controller.abort();
   }, timeoutMs);
@@ -87,6 +116,7 @@ export async function invoke<T = unknown>(command: string, args: Record<string, 
   }
   if (['install_update', 'download_update'].includes(command)) throw new Error('Docker版通过 Docker Compose 更新镜像');
   if (command === 'get_update_distribution') return 'installer' as T;
+  if (command === 'take_update_install_error') return null as T;
   if (command === 'is_update_package_available') return false as T;
   if (['open_apk_download_directory', 'open_cache_directory'].includes(command)) {
     const result = await invokeHttp<string>(command, args, options);
@@ -102,7 +132,7 @@ export async function invoke<T = unknown>(command: string, args: Record<string, 
 export async function listen<T>(eventName: string, handler: (event: TauriEvent<T>) => void): Promise<UnlistenFn> {
   if (isTauri()) return nativeListen<T>(eventName, handler);
   // Container tasks also return their final result. SSE supplies progress while the tab is open.
-  if (eventName !== 'apk-download-progress' || typeof EventSource === 'undefined') return () => {};
+  if (!['apk-download-progress', 'cdn-upload-progress'].includes(eventName) || typeof EventSource === 'undefined') return () => {};
   const source = new EventSource('/api/events');
   const listener = (event: MessageEvent) => {
     try {
