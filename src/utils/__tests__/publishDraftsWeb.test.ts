@@ -154,4 +154,44 @@ describe('网页草稿媒体在Docker中持久化', () => {
     mocks.readStagedFile.mockRejectedValueOnce(new Error('草稿媒体不存在'));
     await expect(drafts.restoreFullPublishDraft(draft)).rejects.toThrow('不存在');
   });
+
+  it('图文题图和正文图片都在Docker保存，模块重建后恢复并完整释放', async () => {
+    let drafts = await import('../publishDrafts');
+    const cover = new File(['cover-bytes'], 'cover.png', { type: 'image/png' });
+    const body = new File(['body-bytes'], 'body.png', { type: 'image/png' });
+    await drafts.saveFullPublishDraft('u', 'article', { ...base, mode: 'article', article: {
+      title: '合成图文草稿', cover: { file: cover, preview: 'blob:expired-cover' },
+      blocks: [{ id: 'text', type: 'text', text: '正文' }, { id: 'image', type: 'image', image: { file: body, preview: 'blob:expired-body' }, description: '图片说明' }],
+    } });
+    const saved = mocks.persisted.fullDrafts.u[0];
+    expect(saved.title).toBe('合成图文草稿');
+    expect(saved.state.article.cover.file.stagedPath).toMatch(/^upload:/);
+    expect(saved.state.article.blocks[1].image.file.stagedPath).toMatch(/^upload:/);
+    expect(saved.state.article.cover.preview).toBe('');
+    expect(saved.state.article.blocks[1].image.preview).toBe('');
+    expect(mocks.stageDraftFile).toHaveBeenCalledTimes(2);
+    vi.resetModules(); drafts = await import('../publishDrafts');
+    const restored = await drafts.restoreFullPublishDraft((await drafts.listFullPublishDrafts('u'))[0]!, 'u');
+    expect(restored.article?.cover?.file?.name).toBe('cover.png');
+    expect(restored.article?.cover?.preview).toMatch(/^data:image\/png;base64,/);
+    expect(restored.article?.blocks[1]).toMatchObject({ type: 'image', description: '图片说明', image: { file: { name: 'body.png' }, preview: expect.stringMatching(/^data:image\/png;base64,/) } });
+    await drafts.saveFullPublishDraft('u', 'article', { ...restored, article: { ...restored.article!, title: '只改标题' } });
+    expect(mocks.stageDraftFile).toHaveBeenCalledTimes(2);
+    await drafts.deleteFullPublishDraft('u', 'article');
+    expect(mocks.releaseCdnFile).toHaveBeenCalledTimes(2);
+    expect(mocks.files.size).toBe(0);
+  });
+
+  it('图文任一图片损坏时保留整个草稿和全部暂存文件', async () => {
+    const drafts = await import('../publishDrafts');
+    await drafts.saveFullPublishDraft('u', 'article', { ...base, mode: 'article', article: {
+      title: '损坏恢复验证', cover: { file: new File(['cover'], 'cover.png'), preview: '' },
+      blocks: [{ id: 'body', type: 'image', image: { file: new File(['original-body'], 'body.png'), preview: '' } }],
+    } });
+    mocks.readStagedFile.mockResolvedValueOnce(new Blob(['bad']));
+    await expect(drafts.restoreFullPublishDraft((await drafts.listFullPublishDrafts('u'))[0]!)).rejects.toThrow('大小不符');
+    expect(await drafts.listFullPublishDrafts('u')).toHaveLength(1);
+    expect(mocks.files.size).toBe(2);
+    expect(mocks.releaseCdnFile).not.toHaveBeenCalled();
+  });
 });

@@ -830,8 +830,15 @@ pub async fn get_editable_feed(state: &AppState, feed_id: String) -> Result<Valu
     state.client.get_editable_feed(&feed_id).await
 }
 
-pub async fn update_feed(state: &AppState, feed_id: String, message: String, pic: String, post_token: Option<String>) -> Result<Value, String> {
-    state.client.update_feed(&feed_id, &message, &pic, post_token.as_deref()).await
+pub async fn update_feed(
+    state: &AppState,
+    feed_id: String,
+    message: String,
+    pic: String,
+    post_token: Option<String>,
+    options: Option<crate::coolapk::client::PublishOptions>,
+) -> Result<Value, String> {
+    state.client.update_feed(&feed_id, &message, &pic, post_token.as_deref(), options.as_ref()).await
 }
 
 pub async fn resolve_video_url(

@@ -4,8 +4,11 @@ import type { PublishVideo } from './publishVideo';
 import type { PublishTarget, PublishOptions } from '../types/publish';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { isTauri } from './runtime';
+import type { PublishArticleState, PublishArticleBlock } from './publishArticle';
 
 export interface PublishDraftState {
+  mode?: 'feed' | 'article';
+  article?: PublishArticleState;
   text: string;
   images: PublishImage[];
   target: PublishTarget | null;
@@ -18,7 +21,10 @@ export interface PublishDraftState {
 }
 interface StoredFile { data?: string; stagedPath?: string; name: string; type: string; lastModified: number; size?: number }
 interface StoredImage { preview: string; url?: string; file?: StoredFile; liveVideo?: StoredFile; liveEnabled?: boolean; liveIdentifier?: string; hdr?: number }
-export interface FullPublishDraft { id: string; title: string; updatedAt: number; state: Omit<PublishDraftState, 'images' | 'video'> & { images: StoredImage[]; video?: Omit<PublishVideo, 'file' | 'cover' | 'preview'> & { file: StoredFile; cover: StoredFile } } }
+type StoredArticleBlock = Exclude<PublishArticleBlock, { type: 'image' }> | { id: string; type: 'image'; image: StoredImage };
+interface StoredArticleState { title: string; cover: StoredImage | null; blocks: StoredArticleBlock[] }
+type StoredDraftState = Omit<PublishDraftState, 'images' | 'video' | 'article'> & { images: StoredImage[]; article?: StoredArticleState; video?: Omit<PublishVideo, 'file' | 'cover' | 'preview'> & { file: StoredFile; cover: StoredFile } };
+export interface FullPublishDraft { id: string; title: string; updatedAt: number; state: StoredDraftState }
 type FullDraftMap = Record<string, FullPublishDraft[]>;
 const serializedFiles = new WeakMap<File, Promise<StoredFile>>();
 // Each draft owns its staged media. A File reused in another draft gets a different token.
@@ -67,7 +73,9 @@ async function restoreFile(file: StoredFile, owner?: string): Promise<File> {
 
 function stagedPaths(draft?: FullPublishDraft): Set<string> {
   const paths = new Set<string>();
-  for (const image of draft?.state.images || []) {
+  const articleImages = draft?.state.article?.blocks.filter(block => block.type === 'image').map(block => block.image) || [];
+  if (draft?.state.article?.cover) articleImages.push(draft.state.article.cover);
+  for (const image of [...(draft?.state.images || []), ...articleImages]) {
     if (image.file?.stagedPath) paths.add(image.file.stagedPath);
     if (image.liveVideo?.stagedPath) paths.add(image.liveVideo.stagedPath);
   }
@@ -114,19 +122,28 @@ async function writeFullPublishDraft(uid: string, id: string, state: PublishDraf
   const owner = `${uid}:${id}`;
   let previousDraft: FullPublishDraft | undefined;
   try {
-    const images: StoredImage[] = [];
-    for (const image of state.images) images.push({
+    const storeImage = async (image: PublishImage): Promise<StoredImage> => ({
       preview: !isTauri() && image.file ? '' : image.preview,
       url: image.url, liveEnabled: image.liveEnabled, liveIdentifier: image.liveIdentifier, hdr: image.hdr,
       file: image.file ? await serializeFile(image.file, owner, newPaths) : undefined,
       liveVideo: image.liveVideo ? await serializeFile(image.liveVideo, owner, newPaths) : undefined,
     });
+    const images: StoredImage[] = [];
+    for (const image of state.images) images.push(await storeImage(image));
+    let article: StoredArticleState | undefined;
+    if (state.article) {
+      const blocks: StoredArticleBlock[] = [];
+      for (const block of state.article.blocks) blocks.push(block.type === 'image' ? { ...block, image: await storeImage(block.image) } : { ...block });
+      article = { title: state.article.title, cover: state.article.cover ? await storeImage(state.article.cover) : null, blocks };
+    }
     const video = state.video ? {
       file: await serializeFile(state.video.file, owner, newPaths), cover: await serializeFile(state.video.cover, owner, newPaths),
       coverPreview: isTauri() ? state.video.coverPreview : '', duration: state.video.duration,
       mediaUrl: state.video.mediaUrl, mediaInfo: state.video.mediaInfo,
     } : undefined;
-    const draft: FullPublishDraft = { id, title: state.text.trim().slice(0, 40) || state.target?.title || state.attachmentTitle || (video ? '视频草稿' : images.length ? '图片草稿' : '新草稿'), updatedAt: Date.now(), state: { ...state, images, video } };
+    const articleImageCount = (article?.cover ? 1 : 0) + (article?.blocks.filter(block => block.type === 'image').length || 0);
+    const draftTitle = state.mode === 'article' ? state.article?.title.trim() : state.text.trim();
+    const draft: FullPublishDraft = { id, title: draftTitle?.slice(0, 40) || state.target?.title || state.attachmentTitle || (video ? '视频草稿' : images.length || articleImageCount ? '图片草稿' : '新草稿'), updatedAt: Date.now(), state: { ...state, article, images, video } };
     await updateTauriStoreValue<FullDraftMap>('publish_drafts.json', 'fullDrafts', {}, (map) => {
       previousDraft = map[uid]?.find(item => item.id === id);
       return { ...map, [uid]: [draft, ...(map[uid] || []).filter(item => item.id !== id)] };
@@ -160,10 +177,21 @@ export async function restoreFullPublishDraft(draft: FullPublishDraft, uid?: str
     file: image.file ? await restoreFile(image.file, owner) : undefined,
     liveVideo: image.liveVideo ? await restoreFile(image.liveVideo, owner) : undefined,
   });
+  let article: PublishArticleState | undefined;
+  const restoreImage = async (image: StoredImage): Promise<PublishImage> => ({ ...image,
+    file: image.file ? await restoreFile(image.file, owner) : undefined,
+    liveVideo: image.liveVideo ? await restoreFile(image.liveVideo, owner) : undefined,
+  });
+  if (state.article) {
+    const blocks: PublishArticleBlock[] = [];
+    for (const block of state.article.blocks) blocks.push(block.type === 'image' ? { ...block, image: await restoreImage(block.image) } : { ...block });
+    article = { ...state.article, cover: state.article.cover ? await restoreImage(state.article.cover) : null, blocks };
+  }
   const file = state.video ? await restoreFile(state.video.file, owner) : undefined;
   const cover = state.video ? await restoreFile(state.video.cover, owner) : undefined;
-  for (const image of images) if (image.file && !image.preview) image.preview = await readFilePreview(image.file);
-  return { ...state, images, video: state.video && file && cover ? {
+  const allImages = [...images, ...(article?.blocks.filter(block => block.type === 'image').map(block => block.image) || []), ...(article?.cover ? [article.cover] : [])];
+  for (const image of allImages) if (image.file && !image.preview) image.preview = await readFilePreview(image.file);
+  return { ...state, article, images, video: state.video && file && cover ? {
     ...state.video, file, cover, coverPreview: state.video.coverPreview || await readFilePreview(cover), preview: URL.createObjectURL(file),
   } : undefined };
 }

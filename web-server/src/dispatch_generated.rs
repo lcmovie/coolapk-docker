@@ -535,7 +535,8 @@ pub async fn dispatch(state: &AppState, command: &str, args: &Value) -> Result<V
             let message: String = arg(args, "message", "message", false)?;
             let pic: String = arg(args, "pic", "pic", false)?;
             let post_token: Option<String> = arg(args, "postToken", "post_token", true)?;
-            serde_json::to_value(commands_generated::update_feed(state, feed_id, message, pic, post_token).await?).map_err(|e| e.to_string())
+            let options: Option<crate::coolapk::client::PublishOptions> = arg(args, "options", "options", true)?;
+            serde_json::to_value(commands_generated::update_feed(state, feed_id, message, pic, post_token, options).await?).map_err(|e| e.to_string())
         },
         "resolve_video_url" => {
             let request_params: String = arg(args, "requestParams", "request_params", false)?;
