@@ -50,6 +50,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { downloadText, invoke, isTauri } from '../../utils/runtime';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { CoolapkTauriAPI } from '../../api/coolapk';
 import AppButton from '../../components/common/AppButton.vue';
 import { requestConfirmation } from '../../utils/confirm';
 import { showToast } from '../../utils/toast';
@@ -99,6 +100,11 @@ async function exportReport() {
   const content = report.value.log;
   try {
     if (!isTauri()) { downloadText(content, 'coolapk-feedback-diagnostics.txt'); return; }
+    if (/android/i.test(navigator.userAgent)) {
+      await CoolapkTauriAPI.exportJsonFile('coolapk-feedback-diagnostics.txt', content);
+      showToast('报告日志已导出');
+      return;
+    }
     const { save } = await import('@tauri-apps/plugin-dialog');
     const path = await save({ defaultPath: 'coolapk-feedback-diagnostics.txt', filters: [{ name: '文本日志', extensions: ['txt'] }] });
     if (path) { await writeTextFile(path, content); showToast('报告日志已导出'); }
@@ -169,6 +175,11 @@ async function exportLogs() {
   if (!content) return;
   try {
     if (!isTauri()) { downloadText(content, 'coolapk-diagnostics.txt'); return; }
+    if (/android/i.test(navigator.userAgent)) {
+      const path = await CoolapkTauriAPI.exportJsonFile('coolapk-diagnostics.txt', content);
+      showToast(`日志已保存：${path}`, 'success', 5000);
+      return;
+    }
     const { save } = await import('@tauri-apps/plugin-dialog');
     const path = await save({
       defaultPath: 'coolapk-diagnostics.txt',

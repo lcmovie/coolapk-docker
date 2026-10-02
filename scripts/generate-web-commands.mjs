@@ -91,13 +91,14 @@ download = download.replace(/#\[tauri::command\]\s*/g, '')
   .replace('.redirect(reqwest::redirect::Policy::limited(10))', '.redirect(crate::secure_redirect_policy()).connect_timeout(std::time::Duration::from_secs(20)).read_timeout(std::time::Duration::from_secs(60))')
   .replace('use tokio::io::AsyncWriteExt;', 'use tokio::io::AsyncWriteExt;\n    let _identity = tokio::time::timeout(std::time::Duration::from_secs(15), app.account_gate.read()).await.map_err(|_| "账户正在切换，请稍后重试下载".to_string())?;')
   .replace('.header(ACCEPT_ENCODING, "identity");', '.header(ACCEPT_ENCODING, "identity");\n    // Request headers hold a credential snapshot; permit account switching while streaming.\n    drop(_identity);')
+  .replace('    open_local_path(&app, &target_dir).await?;\n', '')
   .replace(/opener::open\(&target_dir\)[\s\S]*?;\s*Ok\(\(\)\)/, 'Ok(())');
 fs.writeFileSync(path.join(outDir, 'downloads_generated.rs'), header + 'use crate::{AppState, user_save_dir, validate_custom_dir, next_available_file_path};\nuse crate::coolapk::client::CoolapkClient;\nuse crate::download_manager::DownloadControl;\nuse base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD}};\nuse serde_json::{Value, json};\nuse std::path::{Path, PathBuf};\nuse std::time::Instant;\n\n' + download.trimEnd() + '\n');
 
 const downloads = ['start_apk_download', 'pause_apk_download', 'cancel_apk_download', 'delete_apk_download_file', 'open_apk_download_directory'];
 const all = [...copied];
 for (const name of downloads) {
-  const p = download.indexOf(`pub ${name === 'start_apk_download' || name === 'delete_apk_download_file' ? 'async ' : ''}fn ${name}`);
+  const p = download.search(new RegExp(`pub (?:async )?fn ${name}\\(`));
   if (p < 0) throw new Error(`Cannot find download command ${name}`);
   const signature = download.slice(p, download.indexOf('{', p));
   all.push({ name, async: signature.includes('pub async'), signature, download: true });

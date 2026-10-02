@@ -90,6 +90,8 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 async function focusMainWindow() {
+  // Android deep links activate the Activity; desktop window methods do not apply.
+  if (/android/i.test(navigator.userAgent)) return;
   try {
     const mainWindow = getCurrentWindow();
     await mainWindow.show();

@@ -2303,12 +2303,26 @@ async fn run_apk_download(
     tokio::fs::rename(&partial, &target)
         .await
         .map_err(|error| format!("保存安装包失败：{error}"))?;
+    #[cfg(not(target_os = "android"))]
+    let published_path: Option<String> = None;
+    #[cfg(target_os = "android")]
+    let published_path = match publish_user_file(app, &target).await {
+        Ok(location) => Some(location),
+        Err(error) => {
+        // 原始安装包仍可安装、打开或再次导出，不把已经完成的下载标记为失败。
+        log::warn!("安装包已下载，公共目录保存失败：{error}");
+        let _ = app.emit("android-file-save-error", &error);
+        None
+        }
+    };
     let speed = downloaded / started_at.elapsed().as_secs().max(1);
+    let mut completed = download_event_payload(task_id, "completed", downloaded, total, speed, &target, &partial, None);
+    completed["publicPath"] = json!(published_path);
     let _ = app.emit(
         "apk-download-progress",
-        download_event_payload(task_id, "completed", downloaded, total, speed, &target, &partial, None),
+        completed,
     );
-    Ok(json!({ "status": "completed", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial }))
+    Ok(json!({ "status": "completed", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial, "publicPath": published_path }))
 }
 
 #[tauri::command]
@@ -2388,7 +2402,15 @@ pub async fn delete_apk_download_file(
     target_path: Option<String>,
     partial_path: Option<String>,
     dir: Option<String>,
+    public_path: Option<String>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    if let Some(location) = public_path.filter(|value| !value.is_empty()) {
+        let result = call_android_update_method(&app, "deletePublishedApk", location).await?;
+        if result != "deleted" { return Err(result.trim_start_matches("error:").to_string()); }
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = public_path;
     let target_dir = user_save_dir(&app, dir.as_deref())?;
     for raw_path in [target_path, partial_path]
         .into_iter()
@@ -2410,13 +2432,32 @@ pub async fn delete_apk_download_file(
 }
 
 #[tauri::command]
-pub fn open_apk_download_directory(
+pub async fn install_apk_download(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let file = std::fs::canonicalize(&path).map_err(|_| "安装包不存在，请重新下载".to_string())?;
+        let directory = user_save_dir(&app, None)?.canonicalize().map_err(|error| error.to_string())?;
+        if file.parent() != Some(directory.as_path()) || !file.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("apk")) {
+            return Err("只能安装应用下载目录内的 APK；拆分安装包请使用对应安装工具".to_string());
+        }
+        let result = call_android_update_method(&app, "installDownloadedApk", file.to_string_lossy().to_string()).await?;
+        match result.as_str() {
+            "started" | "permission_required" => Ok(result),
+            _ => Err(result.trim_start_matches("error:").to_string()),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, path); Err("此安装入口仅支持 Android".to_string()) }
+}
+
+#[tauri::command]
+pub async fn open_apk_download_directory(
     app: tauri::AppHandle,
     dir: Option<String>,
 ) -> Result<(), String> {
     let target_dir = user_save_dir(&app, dir.as_deref())?;
     std::fs::create_dir_all(&target_dir).map_err(|error| format!("创建下载目录失败：{error}"))?;
-    opener::open(&target_dir).map_err(|error| format!("打开下载位置失败：{error}"))?;
+    open_local_path(&app, &target_dir).await?;
     Ok(())
 }
 
@@ -2713,12 +2754,21 @@ fn validate_custom_dir(value: &str, label: &str) -> Result<PathBuf, String> {
 }
 
 fn user_save_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<PathBuf, String> {
+    // Android 先在应用目录落盘，再通过 MediaStore/系统保存器导出；跨设备导入的桌面路径不适用。
+    #[cfg(target_os = "android")]
+    {
+        let _ = custom_dir;
+        return app.path().download_dir().map_err(|error| error.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
     if let Some(custom_dir) = custom_dir.map(str::trim).filter(|value| !value.is_empty()) {
         return validate_custom_dir(custom_dir, "自定义下载目录");
     }
     app.path()
         .download_dir()
         .map_err(|_| "无法获取系统下载目录，请在设置中选择下载目录".to_string())
+    }
 }
 
 /// 返回当前平台实际使用的下载目录，便于设置页展示真实路径。
@@ -2752,7 +2802,7 @@ pub async fn save_image(
         .map_err(|error| format!("创建图片保存目录失败：{error}"))?;
     let target_path = save_image_bytes(&target_dir, &file_name, &bytes).await?;
 
-    Ok(target_path.to_string_lossy().to_string())
+    publish_user_file(&app, &target_path).await
 }
 
 /// 保存前端生成的 Base64 分享图，目录为空时使用系统下载目录。
@@ -2776,7 +2826,7 @@ pub async fn save_image_data_url(
         .await
         .map_err(|error| format!("创建分享图保存目录失败：{error}"))?;
     let target_path = save_image_bytes(&target_dir, &file_name, &bytes).await?;
-    Ok(target_path.to_string_lossy().to_string())
+    publish_user_file(&app, &target_path).await
 }
 
 /// 下载图片到应用缓存后交给系统默认图片查看器，避免把 HTTPS 地址交给浏览器。
@@ -2819,7 +2869,7 @@ pub async fn open_image_in_system_viewer(
     } else {
         save_image_bytes(&target_dir, &file_name, &bytes).await?
     };
-    opener::open(&target_path).map_err(|error| format!("打开系统图片查看器失败：{error}"))?;
+    open_local_path(&app, &target_path).await?;
     Ok(target_path.to_string_lossy().to_string())
 }
 
@@ -4043,7 +4093,7 @@ pub async fn download_update(
 
 /// 将文本内容以 JSON 形式导出到指定目录（dir 为空时使用系统下载目录），返回完整保存路径
 #[tauri::command]
-pub fn export_json_file(
+pub async fn export_json_file(
     app: tauri::AppHandle,
     file_name: String,
     content: String,
@@ -4067,7 +4117,7 @@ pub fn export_json_file(
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建导出目录失败：{e}"))?;
     let path = next_available_file_path(&dir, &safe_name);
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
-    Ok(path.to_string_lossy().to_string())
+    publish_user_file(&app, &path).await
 }
 
 fn dir_total_size(dir: &std::path::Path) -> u64 {
@@ -4090,6 +4140,8 @@ const IMAGE_CACHE_CONTAINER: &str = "CoolapkDesktopCache";
 const IMAGE_CACHE_MAGIC: &str = "COOLAPK_IMAGE_CACHE_V1";
 
 fn image_cache_root(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<PathBuf, String> {
+    #[cfg(target_os = "android")]
+    let custom_dir = { let _ = custom_dir; None::<&str> };
     let base = custom_dir
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -4338,13 +4390,13 @@ pub fn clean_expired_cache(
 
 /// 打开当前图片缓存目录，方便用户查看实际落盘文件。
 #[tauri::command]
-pub fn open_cache_directory(
+pub async fn open_cache_directory(
     app: tauri::AppHandle,
     cache_dir: Option<String>,
 ) -> Result<String, String> {
     let image = image_cache_root(&app, cache_dir.as_deref())?;
     std::fs::create_dir_all(&image).map_err(|e| format!("创建缓存目录失败：{e}"))?;
-    opener::open(&image).map_err(|e| format!("打开缓存目录失败：{e}"))?;
+    open_local_path(&app, &image).await?;
     Ok(image.to_string_lossy().to_string())
 }
 
@@ -4415,6 +4467,44 @@ pub fn take_update_install_error(app: tauri::AppHandle) -> Result<Option<String>
     }
 }
 
+async fn publish_user_file(app: &tauri::AppHandle, path: &Path) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        static SAVE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _save_guard = SAVE_LOCK.lock().await;
+        let mut status = call_android_update_method(app, "publishSavedFile", path.to_string_lossy().to_string()).await?;
+        let started = Instant::now();
+        while status == "pending" {
+            if started.elapsed() > Duration::from_secs(300) { return Err("等待保存位置超时，文件仍保留在应用目录".to_string()); }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            status = call_android_update_method(app, "takeSavedFileResult", String::new()).await?;
+        }
+        if !status.starts_with("content://") { return Err(status.trim_start_matches("error:").to_string()); }
+        if !path.extension().is_some_and(|extension| ["apk", "xapk", "apks"].iter().any(|allowed| extension.eq_ignore_ascii_case(allowed))) {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+        Ok(status)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok(path.to_string_lossy().to_string())
+    }
+}
+
+async fn open_local_path(app: &tauri::AppHandle, path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = call_android_update_method(app, "openLocalPath", path.to_string_lossy().to_string()).await?;
+        if status == "opened" { Ok(()) } else { Err(status.trim_start_matches("error:").to_string()) }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        opener::open(path).map_err(|error| format!("打开文件位置失败：{error}"))
+    }
+}
+
 #[cfg(target_os = "android")]
 async fn install_update_android(app: tauri::AppHandle, installer_path: String) -> Result<String, String> {
     let location = if installer_path.starts_with("content://") {
@@ -4439,7 +4529,7 @@ async fn install_update_android(app: tauri::AppHandle, installer_path: String) -
 }
 
 #[cfg(target_os = "android")]
-async fn call_android_update_method(
+pub(crate) async fn call_android_update_method(
     app: &tauri::AppHandle,
     method: &'static str,
     argument: String,

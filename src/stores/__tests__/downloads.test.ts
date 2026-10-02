@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   cancelApkDownload: vi.fn().mockResolvedValue(undefined),
   deleteApkDownloadFile: vi.fn().mockResolvedValue(undefined),
   openApkDownloadDirectory: vi.fn().mockResolvedValue(undefined),
+  installApkDownload: vi.fn().mockResolvedValue('started'),
 }));
 
 vi.mock('../../api/coolapk', () => ({ CoolapkTauriAPI: mocks }));
@@ -18,6 +19,27 @@ import { useDownloadStore } from '../downloads';
 import { useSettingsStore } from '../settings';
 
 describe('下载管理队列', () => {
+  it('删除安装包时同时传递公共副本地址，删除失败时保留记录', async () => {
+    const store = useDownloadStore();
+    const task = store.enqueue({ title: '示例', packageName: 'demo.delete', versionName: '1' });
+    store.applyNativeEvent({ taskId: task.id, status: 'completed', path: '/download/demo.apk', publicPath: 'content://media/external/downloads/1' });
+    mocks.deleteApkDownloadFile.mockRejectedValueOnce(new Error('无写入权限'));
+    await store.remove(task.id, true);
+    expect(store.tasks.some(item => item.id === task.id)).toBe(true);
+    expect(mocks.deleteApkDownloadFile).toHaveBeenCalledWith(task.targetPath, task.partialPath, task.downloadDir, task.publicPath);
+    await store.remove(task.id, true);
+    expect(store.tasks.some(item => item.id === task.id)).toBe(false);
+  });
+  it('仅将已完成的 APK 交给安装器，跳过拆分安装包和未完成任务', async () => {
+    const store = useDownloadStore();
+    const task = { status: 'completed', targetPath: '/downloads/app.apk' } as any;
+    await store.install(task);
+    expect(mocks.installApkDownload).toHaveBeenCalledWith('/downloads/app.apk');
+    mocks.installApkDownload.mockClear();
+    await store.install({ ...task, status: 'downloading' });
+    await store.install({ ...task, targetPath: '/downloads/app.xapk' });
+    expect(mocks.installApkDownload).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());

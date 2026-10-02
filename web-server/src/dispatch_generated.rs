@@ -1224,11 +1224,12 @@ pub async fn dispatch(state: &AppState, command: &str, args: &Value) -> Result<V
             let target_path: Option<String> = arg(args, "targetPath", "target_path", true)?;
             let partial_path: Option<String> = arg(args, "partialPath", "partial_path", true)?;
             let dir: Option<String> = arg(args, "dir", "dir", true)?;
-            serde_json::to_value(downloads_generated::delete_apk_download_file(state, target_path, partial_path, dir).await?).map_err(|e| e.to_string())
+            let public_path: Option<String> = arg(args, "publicPath", "public_path", true)?;
+            serde_json::to_value(downloads_generated::delete_apk_download_file(state, target_path, partial_path, dir, public_path).await?).map_err(|e| e.to_string())
         },
         "open_apk_download_directory" => {
             let dir: Option<String> = arg(args, "dir", "dir", true)?;
-            serde_json::to_value(downloads_generated::open_apk_download_directory(state, dir)?).map_err(|e| e.to_string())
+            serde_json::to_value(downloads_generated::open_apk_download_directory(state, dir).await?).map_err(|e| e.to_string())
         },
         _ => Err(format!("不支持的网页命令：{command}")),
     }

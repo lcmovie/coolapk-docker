@@ -1,8 +1,9 @@
 import { stateStorage } from '../utils/persistentStorage';
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { listen, type UnlistenFn } from '../utils/runtime';
+import { listen, isTauri, type UnlistenFn } from '../utils/runtime';
 import { CoolapkTauriAPI } from '../api/coolapk';
+import { showToast } from '../utils/toast';
 import { useSettingsStore } from './settings';
 import type { DownloadStatus, DownloadTask } from '../types/download';
 
@@ -17,6 +18,7 @@ type NativeDownloadEvent = {
   speed?: number;
   path?: string;
   partialPath?: string;
+  publicPath?: string;
   error?: string;
 };
 
@@ -41,6 +43,7 @@ function readTasks(): DownloadTask[] {
         downloadDir: typeof item.downloadDir === 'string' ? item.downloadDir : '',
         targetPath: typeof item.targetPath === 'string' ? item.targetPath : '',
         partialPath: typeof item.partialPath === 'string' ? item.partialPath : '',
+        publicPath: typeof item.publicPath === 'string' ? item.publicPath : '',
         status: ACTIVE_STATUSES.includes(item.status) ? 'paused' : item.status,
         downloaded: Number(item.downloaded) || 0,
         total: Number(item.total) || 0,
@@ -99,6 +102,7 @@ export const useDownloadStore = defineStore('downloads', () => {
   const runningIds = new Set<string>();
   let initialized = false;
   let eventUnlisten: UnlistenFn | null = null;
+  let saveErrorUnlisten: UnlistenFn | null = null;
   let pumpQueued = false;
 
   const activeTasks = computed(() => tasks.value.filter((task) => ACTIVE_STATUSES.includes(task.status)));
@@ -143,6 +147,7 @@ export const useDownloadStore = defineStore('downloads', () => {
     if (status === 'paused') patch.speed = 0;
     if (event.path) patch.targetPath = event.path;
     if (event.partialPath) patch.partialPath = event.partialPath;
+    if (event.publicPath) patch.publicPath = event.publicPath;
     if (event.error) patch.error = event.error;
     if (status === 'completed') {
       patch.completedAt = now();
@@ -156,6 +161,11 @@ export const useDownloadStore = defineStore('downloads', () => {
   async function initialize() {
     if (initialized) return;
     initialized = true;
+    if (isTauri() && /android/i.test(navigator.userAgent)) {
+      saveErrorUnlisten = await listen<string>('android-file-save-error', (event) => {
+        showToast(`安装包已下载到应用目录，保存到公共目录失败：${event.payload}`, 'error', 6000);
+      });
+    }
     // 应用重启后原生下载通道已经不存在，恢复成暂停状态，保留 .part 文件供继续下载。
     for (const task of tasks.value) {
       if (ACTIVE_STATUSES.includes(task.status)) task.status = 'paused';
@@ -212,6 +222,7 @@ export const useDownloadStore = defineStore('downloads', () => {
         total: Number(result?.total) || task.total,
         targetPath: result?.path || task.targetPath,
         partialPath: result?.partialPath || task.partialPath,
+        publicPath: result?.publicPath || task.publicPath,
         completedAt: status === 'completed' ? now() : task.completedAt,
         error: '',
       });
@@ -321,9 +332,13 @@ export const useDownloadStore = defineStore('downloads', () => {
     if (task.status === 'downloading') await cancel(taskId);
     if (deleteFile) {
       try {
-        await CoolapkTauriAPI.deleteApkDownloadFile(task.targetPath, task.partialPath, task.downloadDir);
+        await CoolapkTauriAPI.deleteApkDownloadFile(task.targetPath, task.partialPath, task.downloadDir, task.publicPath);
       } catch (error) {
         // 跨平台迁移后旧绝对路径可能已经不属于当前系统，删除记录不能被这个历史路径阻塞。
+        if (task.publicPath) {
+          showToast(`删除安装包失败，已保留下载记录：${String(error)}`, 'error');
+          return;
+        }
         console.warn('删除下载文件失败，将继续删除任务记录:', error);
       }
     }
@@ -333,6 +348,16 @@ export const useDownloadStore = defineStore('downloads', () => {
 
   async function open(task: DownloadTask) {
     await CoolapkTauriAPI.openApkDownloadDirectory(task.downloadDir);
+  }
+
+  async function install(task: DownloadTask) {
+    if (task.status !== 'completed' || !task.targetPath || !/\.apk$/i.test(task.targetPath)) return;
+    try {
+      const result = await CoolapkTauriAPI.installApkDownload(task.targetPath);
+      if (result === 'permission_required') showToast('请允许安装未知应用，返回后再次点击安装', 'info', 6000);
+    } catch (error) {
+      showToast(`启动安装失败：${String(error)}`, 'error');
+    }
   }
 
   async function openDirectory(dir?: string) {
@@ -384,6 +409,7 @@ export const useDownloadStore = defineStore('downloads', () => {
     remove,
     open,
     openDirectory,
+    install,
     pauseAll,
     resumeAll,
     clearHistory,

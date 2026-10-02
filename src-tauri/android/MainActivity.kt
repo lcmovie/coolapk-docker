@@ -4,22 +4,194 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
+import android.app.AlertDialog
+import android.app.Activity
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import android.provider.DocumentsContract
 import android.view.View
+import android.webkit.MimeTypeMap
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+    override fun onStart() { super.onStart(); BackgroundNotificationService.mainVisible = true }
+    override fun onStop() { BackgroundNotificationService.mainVisible = false; super.onStop() }
+
+    @Keep
+    fun setBackgroundNotifications(enabled: String): String = try {
+        val intent = Intent(this, BackgroundNotificationService::class.java)
+        BackgroundNotificationService.failure = null
+        if (enabled == "true") { ContextCompat.startForegroundService(this, intent); "started" }
+        else { stopService(intent); "stopped" }
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    @Keep
+    fun backgroundNotificationState(unused: String): String = when {
+        BackgroundNotificationService.failure != null -> "error:${BackgroundNotificationService.failure}"
+        !BackgroundNotificationService.active -> "stopped"
+        BackgroundNotificationService.mainVisible -> "foreground"
+        else -> "background"
+    }
+    @Volatile private var pendingSave: File? = null
+    @Volatile private var saveResult: String = "pending"
+
+    private fun rememberPublishedApk(file: File, uri: Uri) {
+        if (file.extension.lowercase() !in listOf("apk", "xapk", "apks")) return
+        val preferences = getSharedPreferences("published-apks", MODE_PRIVATE)
+        val locations = preferences.getStringSet("locations", emptySet())!!.toMutableSet()
+        locations.add(uri.toString())
+        preferences.edit().putStringSet("locations", locations).apply()
+    }
+
+    @Keep
+    fun deletePublishedApk(location: String): String = try {
+        val preferences = getSharedPreferences("published-apks", MODE_PRIVATE)
+        val locations = preferences.getStringSet("locations", emptySet())!!.toMutableSet()
+        require(locations.contains(location)) { "只能删除本应用导出的安装包" }
+        val uri = Uri.parse(location)
+        require(uri.scheme == "content") { "安装包地址无效" }
+        if (DocumentsContract.isDocumentUri(this, uri)) require(DocumentsContract.deleteDocument(contentResolver, uri)) { "无法删除所选目录中的安装包" }
+        else contentResolver.delete(uri, null, null)
+        locations.remove(location)
+        preferences.edit().putStringSet("locations", locations).apply()
+        "deleted"
+    } catch (error: java.io.FileNotFoundException) { "deleted" }
+    catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    private val saveLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        completeDocumentSave(result.resultCode, result.data)
+    }
+
+    private fun completeDocumentSave(resultCode: Int, data: Intent?) {
+        val file = pendingSave ?: return
+        Thread {
+        val result = try {
+            val uri = data?.data
+            require(resultCode == Activity.RESULT_OK && uri != null) { "已取消保存" }
+            contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+                ?: throw IllegalStateException("无法写入所选文件")
+            if (file.extension.lowercase() in listOf("apk", "xapk", "apks")) {
+                val flags = (data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(uri, flags)
+                rememberPublishedApk(file, uri)
+            }
+            uri.toString()
+        } catch (error: Exception) { "error:${error.message}" }
+        pendingSave = null
+        saveResult = result
+        }.start()
+    }
+
+    @Keep
+    fun takeSavedFileResult(unused: String): String = saveResult
+
+    @Keep
+    fun publishSavedFile(path: String): String = try {
+        val file = localFile(path)
+        require(file.isFile && file.length() > 0) { "保存文件为空" }
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+        require(pendingSave == null) { "请先完成当前保存" }
+        pendingSave = file
+        saveResult = "pending"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            try { saveLauncher.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mime
+                putExtra(Intent.EXTRA_TITLE, file.name)
+            }) } catch (error: Exception) { pendingSave = null; throw error }
+            "pending"
+        } else {
+            Thread {
+            val result = try {
+            val image = mime.startsWith("image/")
+            val collection = if (image) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, if (image) Environment.DIRECTORY_PICTURES + "/Coolapk/" else Environment.DIRECTORY_DOWNLOADS + "/")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(collection, values) ?: throw IllegalStateException("无法创建公共文件")
+            try {
+                contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } }
+                    ?: throw IllegalStateException("无法写入公共文件")
+                contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                rememberPublishedApk(file, uri)
+                uri.toString()
+            } catch (error: Exception) { contentResolver.delete(uri, null, null); throw error }
+            } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+            pendingSave = null
+            saveResult = result
+            }.start()
+            "pending"
+        }
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    private fun localFile(path: String): File {
+        val file = File(path).canonicalFile
+        val roots = listOfNotNull(filesDir, cacheDir, getExternalFilesDir(null)).map { it.canonicalFile }
+        require(roots.any { file == it || file.path.startsWith(it.path + File.separator) }) { "文件不在应用目录内" }
+        require(file.exists()) { "文件不存在" }
+        return file
+    }
+
+    private fun showLocalFile(file: File) {
+        if (file.isDirectory) {
+            val children = file.listFiles()?.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name }) ?: emptyList()
+            AlertDialog.Builder(this).setTitle(file.name)
+                .setItems(children.map { if (it.isDirectory) "📁 ${it.name}" else it.name }.toTypedArray()) { _, index ->
+                    try { showLocalFile(localFile(children[index].path)) }
+                    catch (error: Exception) { AlertDialog.Builder(this).setMessage(error.message).setPositiveButton("确定", null).show() }
+                }.setNegativeButton("关闭", null).show()
+        } else {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                clipData = ClipData.newRawUri(file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }
+    }
+
+    @Keep
+    fun openLocalPath(path: String): String = try {
+        showLocalFile(localFile(path))
+        "opened"
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    @Keep
+    fun installDownloadedApk(path: String): String = try {
+        val file = localFile(path)
+        require(file.isFile && file.extension.equals("apk", true)) { "系统安装器只支持 APK；拆分安装包请使用对应安装工具" }
+        launchApkInstaller(FileProvider.getUriForFile(this, "$packageName.fileprovider", file))
+    } catch (error: Exception) { "error:${error.message ?: error.javaClass.simpleName}" }
+
+    private fun launchApkInstaller(uri: Uri): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return "permission_required"
+        }
+        startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            clipData = ClipData.newRawUri("安装包", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        })
+        return "started"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

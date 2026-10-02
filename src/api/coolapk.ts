@@ -1280,6 +1280,7 @@ export class CoolapkTauriAPI {
       total?: number;
       path?: string;
       partialPath?: string;
+      publicPath?: string;
     }>('start_apk_download', {
       taskId: options.taskId,
       packageName: options.packageName,
@@ -1302,11 +1303,12 @@ export class CoolapkTauriAPI {
     return await invoke<void>('cancel_apk_download', { taskId });
   }
 
-  static async deleteApkDownloadFile(targetPath?: string, partialPath?: string, dir?: string) {
+  static async deleteApkDownloadFile(targetPath?: string, partialPath?: string, dir?: string, publicPath?: string) {
     return await invoke<void>('delete_apk_download_file', {
       targetPath: targetPath || '',
       partialPath: partialPath || '',
       dir: dir || '',
+      publicPath: publicPath || '',
     });
   }
 
@@ -1399,6 +1401,10 @@ export class CoolapkTauriAPI {
 
   static async saveImage(url: string, dir?: string) {
     return await invoke<string>('save_image', { url, dir: dir || '' });
+  }
+
+  static async installApkDownload(path: string) {
+    return await invoke<string>('install_apk_download', { path });
   }
 
   static async saveImageDataUrl(dataUrl: string, fileName: string, dir?: string) {
