@@ -147,6 +147,32 @@ fn uploads_never_send_temporary_credentials_to_untrusted_hosts() {
     assert!(video.contains(".redirect(reqwest::redirect::Policy::none())"));
 }
 
+#[test]
+fn official_image_media_uses_https_and_preserves_url_validation() {
+    assert_eq!(normalize_media_url("http://image.coolapk.com/feed/probe.png?x=1").unwrap().as_str(), "https://image.coolapk.com/feed/probe.png?x=1");
+    assert_eq!(normalize_media_url("https://image.coolapk.com/feed/probe.png").unwrap().scheme(), "https");
+    assert_eq!(normalize_media_url("http://wx1.sinaimg.cn/probe.jpg").unwrap().scheme(), "http");
+    assert!(normalize_media_url("http://127.0.0.1/probe.png").is_err());
+    assert!(normalize_media_url("http://image.coolapk.com.evil.test/probe.png").is_err());
+    assert!(normalize_media_url("https://image.coolapk.com:8080/probe.png").is_err());
+}
+
+#[test]
+fn public_image_requests_keep_browser_headers_without_account_credentials() {
+    let coolapk = CoolapkClient::new();
+    coolapk.set_user_cookie("uid=123; SESSID=synthetic-test-session".to_string()).unwrap();
+    let client = reqwest::Client::new();
+    let image = create_media_request(&client, &coolapk, normalize_media_url("http://image.coolapk.com/feed/probe.png").unwrap()).unwrap().build().unwrap();
+    assert_eq!(image.url().scheme(), "https");
+    assert!(image.headers()[header::USER_AGENT].to_str().unwrap().contains("Chrome/"));
+    assert_eq!(image.headers()[header::REFERER], "https://www.coolapk.com/");
+    assert!(!image.headers().contains_key(header::COOKIE));
+    assert!(!image.headers().contains_key("X-App-Token"));
+    let api = create_media_request(&client, &coolapk, normalize_media_url("https://api.coolapk.com/v6/feed/video").unwrap()).unwrap().build().unwrap();
+    assert!(api.headers().contains_key(header::COOKIE));
+    assert!(api.headers().contains_key("X-App-Token"));
+}
+
 async fn fixture() -> (TempDir, Arc<AppState>, Router) {
     let temp = tempfile::tempdir().unwrap();
     let static_dir = temp.path().join("dist");

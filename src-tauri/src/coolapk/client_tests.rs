@@ -408,6 +408,19 @@ fn test_image_resolution_reads_png_dimensions() {
 }
 
 #[test]
+fn test_file_upload_prepare_uses_image_dimensions_and_digest() {
+    let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    png.extend_from_slice(&64u32.to_be_bytes());
+    png.extend_from_slice(&32u32.to_be_bytes());
+    let descriptor = file_upload_descriptor("probe.png", &png, "fixture-md5");
+    assert_eq!(descriptor["resolution"], "64x32");
+    assert_eq!(descriptor["name"], "probe.png");
+    assert_eq!(descriptor["md5"], "fixture-md5");
+    assert_eq!(descriptor["hdr"], 0);
+    assert_eq!(file_upload_descriptor("empty.txt", &[], "empty")["resolution"], "0x0");
+}
+
+#[test]
 fn test_reply_target_uses_comment_id_and_reply_type() {
     assert_eq!(
         reply_target_params("73356707", Some(" 601858220 ")),

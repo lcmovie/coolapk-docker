@@ -346,6 +346,10 @@ fn image_resolution(image_bytes: &[u8]) -> String {
         .unwrap_or_else(|| "0x0".to_string())
 }
 
+fn file_upload_descriptor(name: &str, header: &[u8], md5: &str) -> Value {
+    json!({ "name": name, "resolution": image_resolution(header), "md5": md5, "hdr": 0 })
+}
+
 fn jpeg_resolution(image_bytes: &[u8]) -> Option<(u32, u32)> {
     let mut index = 2;
     while index + 9 < image_bytes.len() {
@@ -6298,6 +6302,7 @@ impl CoolapkClient {
             .map_err(|error| format!("打开文件失败：{error}"))?;
         let mut hasher = Md5::new();
         let mut buffer = vec![0u8; 256 * 1024];
+        let mut header = Vec::new();
         let mut hashed = 0u64;
         loop {
             let read = source
@@ -6306,6 +6311,10 @@ impl CoolapkClient {
                 .map_err(|error| format!("读取文件失败：{error}"))?;
             if read == 0 {
                 break;
+            }
+            if hashed == 0 {
+                // 只保留首个块解析图片尺寸；大文件仍按块计算摘要和上传。
+                header.extend_from_slice(&buffer[..read]);
             }
             hasher.update(&buffer[..read]);
             hashed = hashed.saturating_add(read as u64);
@@ -6321,12 +6330,7 @@ impl CoolapkClient {
         let md5_hex = hex::encode(&md5_digest[..]);
         let content_md5_b64 = base64::engine::general_purpose::STANDARD.encode(&md5_digest[..]);
 
-        let file_list = json!([{
-            "name": file_name.clone(),
-            "resolution": "0x0",
-            "md5": md5_hex,
-            "hdr": 0
-        }])
+        let file_list = json!([file_upload_descriptor(&file_name, &header, &md5_hex)])
         .to_string();
         let prepare_params = [
             ("uploadBucket", "image".to_string()),

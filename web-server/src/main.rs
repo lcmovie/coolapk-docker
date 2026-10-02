@@ -516,20 +516,36 @@ pub fn secure_redirect_policy() -> reqwest::redirect::Policy {
         } else { attempt.follow() }
     })
 }
+fn normalize_media_url(raw: &str) -> Result<reqwest::Url, String> {
+    let mut url = validate_media_url(raw)?;
+    // OSS 准备接口仍返回 HTTP 图片链接；该 CDN 的 HTTP 响应可能是 HTML。
+    // 只将已验证的官方图片域名升级为 HTTPS，保留路径和查询参数。
+    if url.scheme() == "http" && url.host_str() == Some("image.coolapk.com") {
+        url.set_scheme("https").map_err(|_| "无法规范化图片地址".to_string())?;
+    }
+    Ok(url)
+}
 #[derive(Deserialize)]
 struct MediaQuery { url: String }
-async fn media(State(state): State<Arc<AppState>>, Query(query): Query<MediaQuery>, headers: HeaderMap) -> ApiResult<Response> {
-    let url = validate_media_url(&query.url)?;
+fn create_media_request(client: &reqwest::Client, coolapk: &CoolapkClient, url: reqwest::Url) -> Result<reqwest::RequestBuilder, String> {
     let host = url.host_str().unwrap_or_default();
-    let official = host == "coolapk.com" || host.ends_with(".coolapk.com");
+    // 公开图片 CDN 不需要账号凭据；API 媒体仍使用当前账号的下载请求头。
+    let official = (host == "coolapk.com" || host.ends_with(".coolapk.com")) && host != "image.coolapk.com";
+    let mut request = client.get(url.clone())
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .header("Referer", if host.ends_with("sinaimg.cn") || host.ends_with("weibocdn.com") { "https://weibo.com/" } else { "https://www.coolapk.com/" });
+    if official {
+        request = coolapk.apply_download_headers(request)?;
+        if let Some(cookie) = coolapk.get_user_cookie() { request = request.header(header::COOKIE, cookie); }
+    }
+    Ok(request)
+}
+async fn media(State(state): State<Arc<AppState>>, Query(query): Query<MediaQuery>, headers: HeaderMap) -> ApiResult<Response> {
+    let url = normalize_media_url(&query.url)?;
     let client = reqwest::Client::builder().timeout(Duration::from_secs(120)).redirect(reqwest::redirect::Policy::custom(|attempt| {
         if attempt.previous().len() >= 5 || validate_media_url(attempt.url().as_str()).is_err() { attempt.error("媒体跳转地址不受信任") } else { attempt.follow() }
     })).build().map_err(|_| "无法创建媒体连接")?;
-    let mut request = client.get(url.clone()).header("User-Agent", "Mozilla/5.0").header("Referer", if host.ends_with("sinaimg.cn") || host.ends_with("weibocdn.com") { "https://weibo.com/" } else { "https://www.coolapk.com/" });
-    if official {
-        request = state.client.apply_download_headers(request)?;
-        if let Some(cookie) = state.client.get_user_cookie() { request = request.header(header::COOKIE, cookie); }
-    }
+    let mut request = create_media_request(&client, &state.client, url)?;
     for name in [header::RANGE, header::IF_RANGE] { if let Some(value) = headers.get(&name) { request = request.header(name, value); } }
     let upstream = request.send().await.map_err(|_| "媒体请求失败")?;
     let status = StatusCode::from_u16(upstream.status().as_u16()).map_err(|_| "媒体响应无效")?;
