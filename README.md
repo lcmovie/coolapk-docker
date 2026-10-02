@@ -6,6 +6,11 @@
 
 本项目基于原项目改造，增加原生网页访问、Docker / Docker Compose 部署和服务端数据持久化。保留原作者署名，沿用 [MIT 开源协议](LICENSE)。
 
+## DOME 预览
+
+地址：http://124.223.222.24:18966   密码9iG7YNgRQWeFGDvd
+公共预览地址，不建议登录账户，且会定期清理。
+
 ## Docker 安装
 
 需要安装 Docker 和 Docker Compose。以下命令以 Linux / NAS 终端为例；数据目录权限命令需要 sudo，使用 root 时可省略 sudo。
