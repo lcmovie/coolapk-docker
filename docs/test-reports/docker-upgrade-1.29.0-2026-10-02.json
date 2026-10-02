@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "project": "酷安docker版",
+  "reportType": "upgrade_regression",
+  "version": "1.29.0",
+  "recordedAtUtc": "2026-10-02T03:17:27.665972+00:00",
+  "status": "validated_for_publication_with_explicit_limits",
+  "source": {
+    "upstream": "daimiaopeng/coolapk-desktop",
+    "upstreamCommit": "3d232d2d2256d711ee09c0634b07ed691c0a6f82",
+    "mergeCommit": "fc8dfc905c2a3cffe310ad360498ca557f153172",
+    "sourceFingerprintSha256": "43eb5d480d9034823b8808bda3b47414559870ee6a3f4d4ef1c91a3377c3d285",
+    "imageId": "sha256:feb7d6eeafee42d0e4e2101f11a3a6de74091570684760f2cd8b39a0a0ec054d",
+    "sourceArchiveSha256": "d31e5c8abbd29aec1f805aea768f6048ed4305644eab2d4ef07690f5a6bb2d89",
+    "subsequentCodeChanges": false
+  },
+  "automated": {
+    "frontend": {
+      "files": 146,
+      "passed": 980,
+      "failed": 0
+    },
+    "rustWebServer": {
+      "passed": 83,
+      "failed": 0,
+      "ignored": 21
+    },
+    "typecheck": "passed",
+    "frontendBuild": "passed",
+    "dockerBuild": "passed",
+    "defaultFeatureTauriCargoCheck": "passed",
+    "gitDiffCheck": "passed",
+    "httpSmoke": "passed"
+  },
+  "deployment": {
+    "architecture": "linux/amd64",
+    "isolatedChecksPassed": 22,
+    "mainChecksPassed": 16,
+    "existingExportsPreserved": 1,
+    "existingCacheFilesPreserved": 1332,
+    "accountAndDeviceHashesPreserved": true,
+    "accessSessionsPreserved": true,
+    "otherContainersUnchanged": true,
+    "nasTouched": false,
+    "luckyTouched": false
+  },
+  "browser": {
+    "aboutBrandAndVersion": "passed",
+    "ownRepositoryLinks": "passed",
+    "articleViewportWidths": [
+      1920,
+      720,
+      390
+    ],
+    "articleImagesRestored": "passed",
+    "nativeFileChooserSelection": "blocked_by_extension_local_file_access"
+  },
+  "draftLifecycle": {
+    "mediaSeedMethod": "HTTP_API_with_synthetic_PNGs",
+    "seedChecksPassed": 22,
+    "composeRecreateChecksPassed": 21,
+    "uiDeleteChecksPassed": 10,
+    "stagedCoverAndBodyProtected": "passed",
+    "syntheticDraftAndBothStageDirectoriesRemoved": true
+  },
+  "realAccount": {
+    "textOnlyArticle": {
+      "createRequests": 1,
+      "result": "upstream_converted_to_regular_feed",
+      "cleanedUp": true
+    },
+    "completeArticle": {
+      "createRequests": 1,
+      "updateRequests": 1,
+      "http": 200,
+      "businessCode": 200,
+      "actualArticleType": 1,
+      "roundtripChecksPassed": 10,
+      "privateVisibilityPreserved": true,
+      "coverAndBodyImagePreserved": true,
+      "addedCdnUploads": 0,
+      "createdFeedAndDraftRemoved": true
+    },
+    "priorRegularFeedPublish": "passed_and_cleaned",
+    "historicalWriteTests": "See 1.27.6 report; not all repeated in this upgrade"
+  },
+  "cdn": {
+    "actualUpload": "passed",
+    "finalImageReadbackChecksPassed": 4,
+    "httpAndHttpsInputs": "200 image/png,398 bytes",
+    "range": "206,24 bytes",
+    "fixtureSha256": "17a42f59e9f273067b25cebf90ed94a006c352a4cd1cffa1596ddc685268707f",
+    "finalReadbackAdditionalUploads": 0,
+    "syntheticRemoteObjectsRemaining": 2,
+    "localStageFilesRemoved": true
+  },
+  "limits": [
+    "21 ignored Rust upstream probes are unexecuted, not passed",
+    "Native browser file selection blocked; API staging is separate evidence",
+    "ARM64 and native desktop/mobile packages not built or device-tested",
+    "Full real video and Live Photo publish/playback remain unverified",
+    "Historical account write tests are not all rerun; self-DM restriction retained",
+    "Anonymous standalone life-topic route timed out; logged-in discovery life was verified separately",
+    "Existing reverse-proxy to server HTTP leg unchanged"
+  ],
+  "evidence": [
+    {
+      "path": "test-results/upgrade-1.29.0/latest-upstream-final/summary.json",
+      "sha256": "d199588e4aaf771455414dacccc5b11d88808c9fd09085030640602031f3bc25",
+      "bytes": 1499
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/latest-upstream-final/test.log",
+      "sha256": "67f1e73a0a4de654b41cc825561a692874fcf2f2f020a1804c5a4ce27f1d00a7",
+      "bytes": 289
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/build-result.json",
+      "sha256": "3e648891d3012ffa5889b12bc4d0ce4183051d54851cac3285769dd50add4c3f",
+      "bytes": 1008
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/production.log",
+      "sha256": "521bee6433e9573bc5aaae2e9c3c0a9e424157a465129cb53cbac1f552de882d",
+      "bytes": 24766
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/tauri-cargo-check-exit.txt",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/tauri-cargo-check.log",
+      "sha256": "e62f39ead36e9f4199ae47dfa039b4aa952316c91551b98f9a33e861893c228a",
+      "bytes": 500
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/source-manifest.json",
+      "sha256": "0278d57f348416cfc986e350dcc11131e3c3b9ce867e1fbd842d92723fb77c2f",
+      "bytes": 74591
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/isolated-upgrade.json",
+      "sha256": "1dcb6322ab9a24311bc27213f70d2d82dab060f8092ced12f10619e59003483b",
+      "bytes": 3739
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/main-upgrade.json",
+      "sha256": "2af923a9be1cf343d18ef7fa0f8c8e88eb463eec20e0d80ff69886573bab01fa",
+      "bytes": 3654
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/draft-seed-blue.json",
+      "sha256": "293fcb4b94175a8972b7ae7c016683120c762139b47cb4e8f420d6208187e7f8",
+      "bytes": 2376
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/draft-recreate.json",
+      "sha256": "6d66575b5f2ae4ee764db38eee25844703fb5526e258ae8a51fcc6dfbf1fb4cb",
+      "bytes": 3092
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/draft-verify-ui-delete.json",
+      "sha256": "f179832762c3551e2c0d6d436a861c6f19192ad5b4755b1d11be6239de8d25ff",
+      "bytes": 1074
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-final-docker/ci-smoke.log",
+      "sha256": "251247945b509586188f9aad1f8bde38c85d17cd2cba46601cd58c4d603c1a82",
+      "bytes": 910
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/article-draft-restore.json",
+      "sha256": "c93260e7f837a021846a90207608282bd66c3bc98677895c4ac11e19818a1530",
+      "bytes": 1352
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/article-draft-mobile.png",
+      "sha256": "3f355190e449e8e4c30ff19aead87f365ae6ab9aed11ad0f6b00a6c0b38cdbc7",
+      "bytes": 32054
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/private-article-create.json",
+      "sha256": "e89ac94780d1b6d7bb65cf3497d73455ab64d4f22c32b2ace69e7150da0ecc78",
+      "bytes": 205
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/private-article-complete-create.json",
+      "sha256": "82bb9cbbd139a8d04a85f6e0c916171697c250528f654224f042f6190d9472ad",
+      "bytes": 280
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/private-article-complete-edit.json",
+      "sha256": "d8261a901f9370e325d463b04cc5faf003fa77821389a1dad920bf76c8d8bece",
+      "bytes": 643
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-account/text-only-inspect.json",
+      "sha256": "998952b415e7e49196572268b51a2a45d96b33971ef54307a2e8dc464e58e359",
+      "bytes": 1418
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-account/text-only-cleanup.json",
+      "sha256": "38874be9d4b6430aa0c1b2fe4eeede31eb2a10dda2fd9761b4006e9cd433df7a",
+      "bytes": 2118
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-account/roundtrip.json",
+      "sha256": "2594aea9052655f3f71a650903001d9467c1a37d14c3beadc147eceda2b062d9",
+      "bytes": 420
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/article-account/ui-post-cleanup.json",
+      "sha256": "74b4cfaed8c0d4a5b16dc724b847663424a73f54e7265bbc0a0ae61fd4e0e251",
+      "bytes": 2118
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/final-cdn-regression/article-final-media-readback.json",
+      "sha256": "049dafa87fdf55ad9eb52020d11afc0d2f4c7abd3557c7df51eb185cdadc9778",
+      "bytes": 1222
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/publish-audit.json",
+      "sha256": "4ff00cb25b86ff23507d0473aa211c8d8a7d5cdf9fa13d7a32f5da28dba47116",
+      "bytes": 245
+    }
+  ],
+  "rawCredentialsIncluded": false,
+  "privateArchivesPublished": false
+}

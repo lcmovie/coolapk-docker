@@ -22,6 +22,8 @@
 
 支持通过 `docker compose up -d --build` 构建和部署。账号 Cookie、应用访问会话、设置、历史和下载文件保存在安装目录的 `data/`，容器重新创建后继续保留；Cookie 的有效期仍由酷安决定。
 
+当前版本为 **1.29.0**，同步上游至 `3d232d2`，包含图文动态发布与重新编辑。Docker 网页中的图文题图、正文图片及视频草稿同样保存到安装目录。升级验证见 [1.29.0 测试报告](docs/docker-upgrade-1.29.0-2026-10-02.md)。
+
 项目已迁移到服务器 `203.0.113.10`，安装目录为 `/opt/coolapk-docker`，端口 `18966`，服务继续运行。外网沿用 [酷安docker版](https://coolapk.example.com:88/)，Lucky 目标已切换到新机器。旧 NAS 项目已完成完整备份校验、删除和资源复核，其他服务保持不变。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md)、[验证说明](docs/docker-testing.md) 和 [本轮修复与迁移记录](docs/docker-migration.md)。
 
 酷安 Cookie 由用户在网页自行导入，测试不会展示真实凭据。经用户授权，2026-09-30 至 2026-10-01 已使用现有账号验证动态、点赞、收藏、评论、转发与私密收藏夹，并清理本轮临时内容。1.27.6 历史回归中前端 114 个文件 / 716 项测试通过，Rust 62 项通过、21 项忽略；真实网页单次发布及升级后会话恢复已验证。私信自发和 Live Photo 视频受上游限制，详见 [完整测试报告](docs/docker-full-test-2026-10-01.md)。桌面 WebView 自动授权不适用于浏览器。
@@ -43,7 +45,7 @@
 | **Android** | `.apk` / `.aab` | `coolapk-vx.y.z-android-arm64.apk` / `coolapk-vx.y.z-android-arm64.aab` |
 | **iPhone / iPad** | `.ipa` | `coolapk-vx.y.z-ios-arm64-unsigned.ipa`（未签名，需自行签名安装） |
 
-> 💡 **提示**：构建产物均由 GitHub Actions 自动化流程在云端打包。Windows 单文件版无需解压或安装，系统需已有 WebView2 Runtime。iOS IPA 为未签名设备包，不能直接安装到普通 iPhone/iPad，需要使用 AltStore、SideStore、Sideloadly 或自己的 Apple 证书完成签名。
+> 上述桌面及移动产物由上游维护。本 Docker 仓库提供源码和 Docker 部署方式，未构建或验证上述原生安装包。
 
 ## 界面预览
 
@@ -144,14 +146,14 @@ npm run android:build -- --debug --apk
 
 APK 输出到 `src-tauri/gen/android/app/build/outputs/apk/`。连接设备后可用 `adb install -r <apk路径>` 安装。正式分发前还需配置 Android 签名；Google Play 应优先构建并上传 AAB。
 
-Tag 发布时，GitHub Actions 会构建签名的 ARM64 release APK 和 AAB，并上传到同一个 GitHub Release。仓库需要配置以下 Actions Secrets：
+上游的 Android 自动发布需要以下签名配置；本 Docker 仓库未启用该流程：
 
 - `ANDROID_KEYSTORE_BASE64`：上传密钥 `.jks` 文件的 Base64 内容
 - `ANDROID_KEYSTORE_PASSWORD`：密钥库密码
 - `ANDROID_KEY_ALIAS`：密钥别名
 - `ANDROID_KEY_PASSWORD`：密钥密码
 
-安装包位于 `src-tauri/target/release/bundle/`。GitHub Actions 会提供：
+原生构建产物位于 `src-tauri/target/release/bundle/`。以下为上游支持的产物参考：
 
 - Windows x64：NSIS 安装包 `-setup.exe`、单文件便携版 `x64-portable.exe`
 - Windows ARM64：NSIS 安装包 `-setup.exe`、单文件便携版 `arm64-portable.exe`
@@ -182,22 +184,27 @@ npm run tauri -- ios dev --open
 npm run tauri -- ios build --target aarch64 --no-sign --ci
 ```
 
-GitHub Actions 会在推送 `v*` 版本标签时自动生成 ARM64 未签名 IPA，并上传到对应的 GitHub Release。该 IPA 不包含 Apple 开发者签名，安装到真机前需要使用 AltStore、SideStore、Sideloadly 或自己的证书重新签名；它不是可直接提交 App Store 的发行包。
+上游支持生成 ARM64 未签名 IPA。本 Docker 仓库未执行 iOS 构建；未签名 IPA 安装到真机前需要用户自行签名。
 
-## 自动发布
+## Docker 版本发布
 
-推送以 `v` 开头的版本标签后，GitHub Actions 会自动构建全部平台，并创建公开的 GitHub Release，上传上述安装包。普通的 `main` 分支推送和 Pull Request 只执行构建检查，不会发布版本。
+本仓库通过前端检查、Rust 测试、Docker 构建和部署验证后发布版本。Release 与更新提示使用 [本项目 Releases](https://github.com/lcmovie/coolapk-docker/releases)，Docker 更新时保留 `.env` 和 `data/`，重新构建并创建容器。
 
-发布前只需更新 `src/constants/version.ts` 并创建对应标签，GitHub Actions 会从标签自动同步版本号到全部构建文件：
+维护者使用版本脚本同步六个版本文件，完成仓库要求的全部检查后，创建独立版本提交和带注释标签：
 
 ```bash
 npm run version:set -- 1.2.3
+npm run typecheck
+npm test
 npm run build
-git tag v1.2.3
+cargo check --manifest-path src-tauri/Cargo.toml
+git diff --check
+git commit -m "发布版本 v1.2.3"
+git tag -a v1.2.3 -m "发布版本 v1.2.3"
 git push origin main v1.2.3
 ```
 
-Windows 客户端会自动识别当前运行方式：安装版下载同架构的 `-setup.exe` 静默升级，单文件版下载同架构的 `-portable.exe`，退出后原位替换并重启。两种更新包都必须与 Release 标签版本一致，避免装错版本。
+网页检查更新仅提示 Docker 版本及部署操作；原生程序包的更新能力保留在桌面代码中，不作为 Docker 升级方式。
 
 ## 常用检查
 
@@ -223,7 +230,7 @@ src-tauri/                   Rust / Tauri 桌面端
   src/coolapk/commands.rs    Tauri commands
   src/coolapk/api_tests.rs   接口可用性探测测试
 docs/screenshots/            界面预览截图
-.github/workflows/build.yml  跨平台构建流程
+scripts/web-smoke.py         Docker HTTP 冒烟验证
 ```
 
 ## 登录说明
