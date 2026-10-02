@@ -3,21 +3,21 @@
   "project": "酷安docker版",
   "reportType": "upgrade_regression",
   "version": "1.29.0",
-  "recordedAtUtc": "2026-10-02T03:17:27.665972+00:00",
+  "recordedAtUtc": "2026-10-02T03:41:04.304770+00:00",
   "status": "validated_for_publication_with_explicit_limits",
   "source": {
     "upstream": "daimiaopeng/coolapk-desktop",
-    "upstreamCommit": "3d232d2d2256d711ee09c0634b07ed691c0a6f82",
-    "mergeCommit": "fc8dfc905c2a3cffe310ad360498ca557f153172",
-    "sourceFingerprintSha256": "43eb5d480d9034823b8808bda3b47414559870ee6a3f4d4ef1c91a3377c3d285",
-    "imageId": "sha256:feb7d6eeafee42d0e4e2101f11a3a6de74091570684760f2cd8b39a0a0ec054d",
-    "sourceArchiveSha256": "d31e5c8abbd29aec1f805aea768f6048ed4305644eab2d4ef07690f5a6bb2d89",
+    "upstreamCommit": "010c26ccf33013c7fb08d2dcf9497426118692ed",
+    "mergeCommit": "35cd9e828f48ce2dc05b75f0d2caa527c2d8a5f2",
+    "sourceFingerprintSha256": "aacfbba6d3ba250b6cb4626e4242cf69c80e224975e03733bfd59904af567e4f",
+    "imageId": "sha256:ea5079a2ccf0c588585b20c7bc948fc41e08ffdae3cd5502cb0a1691d2966ed1",
+    "sourceArchiveSha256": "1d164ada0d0653d5b6ba21d0c950c03578e9b1e481dcb261551aeb84757cc771",
     "subsequentCodeChanges": false
   },
   "automated": {
     "frontend": {
-      "files": 146,
-      "passed": 980,
+      "files": 148,
+      "passed": 988,
       "failed": 0
     },
     "rustWebServer": {
@@ -43,6 +43,23 @@
     "otherContainersUnchanged": true,
     "nasTouched": false,
     "luckyTouched": false
+  },
+  "androidWebBoundary": {
+    "unitBrowserAndDesktopGuards": "passed",
+    "downloadApiChecksPassed": 11,
+    "androidNativeBuildAndDeviceTests": "not_executed"
+  },
+  "testPhases": {
+    "articleRealWritesAndDraftRecreation": {
+      "upstreamCommit": "3d232d2d2256d711ee09c0634b07ed691c0a6f82",
+      "imageId": "sha256:feb7d6eeafee42d0e4e2101f11a3a6de74091570684760f2cd8b39a0a0ec054d",
+      "articleRuntimeSourceUnchangedByFinalAndroidMerge": true
+    },
+    "finalAndroidMerge": {
+      "upstreamCommit": "010c26ccf33013c7fb08d2dcf9497426118692ed",
+      "realArticleWritesRepeated": false,
+      "automatedTestsAndDeploymentAndReadOnlyAccountCdnAndSettings": "passed"
+    }
   },
   "browser": {
     "aboutBrandAndVersion": "passed",
@@ -220,9 +237,84 @@
       "bytes": 1222
     },
     {
-      "path": "test-results/upgrade-1.29.0/publish-audit.json",
-      "sha256": "4ff00cb25b86ff23507d0473aa211c8d8a7d5cdf9fa13d7a32f5da28dba47116",
-      "bytes": 245
+      "path": "test-results/upgrade-1.29.0/android-final-validation/summary.json",
+      "sha256": "377339dc50467a4795d394eb60ed7f67bfb7c15b5854042ece0b4e1e919a2a7a",
+      "bytes": 1502
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-validation/test.log",
+      "sha256": "15f0e9a2002872ba5111d26ce7e3c4ebf34fd31ec9dc21783c4450f551ecf666",
+      "bytes": 289
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/build-result.json",
+      "sha256": "8c8aad68e7e010867c9187054ddcada1d5134270e6ada1f90c2a35dbbb0d531d",
+      "bytes": 1008
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/production.log",
+      "sha256": "e89ee2f43123665e9e6d4a5f129eb1113ce63e1b44c0a106f9f1d520c737ab40",
+      "bytes": 25215
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/tauri-cargo-check-exit.txt",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/tauri-cargo-check.log",
+      "sha256": "54d3e3d260f798d0224796d326c4e73d0acd2cc8a074cb5ae5272b8082c478dc",
+      "bytes": 732
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/source-manifest.json",
+      "sha256": "8012945f618646171ce692334448abc6406d44af6c3595e24e5bab8e5dd42cf9",
+      "bytes": 75557
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/isolated-upgrade.json",
+      "sha256": "7cae3285543365bc6e25c18c559e59721527c5cb856d36c174de03de8cfff81f",
+      "bytes": 3738
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/main-upgrade.json",
+      "sha256": "4419b4a5e46ee40a73f395b7a3c34ae1f75a4695ec4a777b4e825d811aa0ab5f",
+      "bytes": 3654
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/download-boundary.json",
+      "sha256": "bea622e1f568e16ede3339bc09f7ee34bd341900a831563cb811d1c539b07e2c",
+      "bytes": 1054
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/ci-smoke.log",
+      "sha256": "54f8efd70c87cd86341339f9c1bccc716ea06d27ace63c7f39da273a4aa30ae6",
+      "bytes": 910
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/android-final-docker/image-publication-audit.json",
+      "sha256": "c4fbe903d976eb4cd9e289ef91955a9a55fccc3837eadca7bc4286437d2ca593",
+      "bytes": 274
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/final-cdn-regression/android-final-media-readback.json",
+      "sha256": "99b3307257f4dc0eb4473a7f4f0760b97dc7ea71ba3a80f3af70de16c5151316",
+      "bytes": 1222
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/about-android-final.json",
+      "sha256": "ad2bfc4c3c2dbd0c541020f00c7b3a62bd96b514d5f59e856e6b597b38fe1bb3",
+      "bytes": 277
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/about-android-final.png",
+      "sha256": "ee7799456603330d41163569a73d538f02bfa1070bfad39e1e32cf294917f1a5",
+      "bytes": 93240
+    },
+    {
+      "path": "test-results/upgrade-1.29.0/ui/android-final-settings.json",
+      "sha256": "f8cd3d6ee2e2e7df6979573cba0cb559733db0d5043d12e50d7004cd128beacd",
+      "bytes": 539
     }
   ],
   "rawCredentialsIncluded": false,

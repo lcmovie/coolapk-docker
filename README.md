@@ -22,7 +22,7 @@
 
 支持通过 `docker compose up -d --build` 构建和部署。账号 Cookie、应用访问会话、设置、历史和下载文件保存在安装目录的 `data/`，容器重新创建后继续保留；Cookie 的有效期仍由酷安决定。
 
-当前版本为 **1.29.0**，同步上游至 `3d232d2`，包含图文动态发布与重新编辑。Docker 网页中的图文题图、正文图片及视频草稿同样保存到安装目录。升级验证见 [1.29.0 测试报告](docs/docker-upgrade-1.29.0-2026-10-02.md)。
+当前版本为 **1.29.0**，同步上游至 `010c26c`，包含图文动态发布与重新编辑，以及 Android 通知、深链、文件保存和安装包入口的源码更新。Docker 网页中的图文题图、正文图片及视频草稿同样保存到安装目录。升级验证见 [1.29.0 测试报告](docs/docker-upgrade-1.29.0-2026-10-02.md)。
 
 项目已迁移到服务器 `203.0.113.10`，安装目录为 `/opt/coolapk-docker`，端口 `18966`，服务继续运行。外网沿用 [酷安docker版](https://coolapk.example.com:88/)，Lucky 目标已切换到新机器。旧 NAS 项目已完成完整备份校验、删除和资源复核，其他服务保持不变。网页访问密码保存在安装目录 `.env` 的 `COOLAPK_ACCESS_PASSWORD` 中。参见 [部署说明](docs/docker-deployment.md)、[验证说明](docs/docker-testing.md) 和 [本轮修复与迁移记录](docs/docker-migration.md)。
 
